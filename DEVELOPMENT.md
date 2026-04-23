@@ -143,7 +143,7 @@ Two scopes — global catalog data is shared across all users; only watch histor
 
 **User-scoped**
 - `users` — Google OIDC accounts
-- `extension_tokens` — long-lived tokens for the Chrome extension
+- `extension_tokens` — long-lived Bearer tokens for the Chrome extension (sha256-hashed at rest, capped at 5 active tokens per user, revocable, `last_used_at` tracked)
 - `user_services` — encrypted provider credentials + sync state
 - `watch_events` — raw history imported from providers
 - `user_episode_progress` — watched/playhead state per episode
@@ -177,11 +177,11 @@ The ingest pipeline lives in `apps/api/src/services/sync.service.ts` and support
 
 ### Enrichment
 
-The nightly cron (`pnpm --filter @kyomiru/api cron:run`, runs at 03:15 UTC) calls `enqueuePendingEnrichment`, which enqueues a BullMQ job for every show missing or stale `enriched_at`. The `enrichmentWorker` (`apps/api/src/workers/enrichmentWorker.ts`) processes each job, fetching metadata from AniList (anime) or TMDb (non-anime) and upserting the catalog.
+`pnpm --filter @kyomiru/api cron:run` is a one-shot script that calls `enqueuePendingEnrichment`, which enqueues a BullMQ job for every show missing or stale `enriched_at`. There is no in-repo scheduler — invoke it manually or from your deployment platform's scheduler (cron, systemd timer, Fly.io cron, etc.). The `enrichmentWorker` (`apps/api/src/workers/enrichmentWorker.ts`) processes each job, fetching metadata from AniList (anime) or TMDb (non-anime) and upserting the catalog. The daily watch-history sync trigger lives in the Chrome extension via `chrome.alarms`, not on the server.
 
 ### Credential encryption
 
-Provider credentials are encrypted at rest with libsodium `crypto_secretbox_easy` using the `APP_SECRET_KEY` master key. Plaintext exists only in memory during an ingest request; it is never logged (pino redact list covers `password`, `username`, and `encryptedSecret`).
+Provider credentials are encrypted at rest with AES-256-GCM (Node's built-in `crypto`, implemented in `apps/api/src/crypto/secretbox.ts`) using the 32-byte base64 `APP_SECRET_KEY` master key — 12-byte random nonce, 16-byte auth tag, ciphertext and nonce stored base64 in `user_services.encrypted_secret` / `secret_nonce`. Plaintext exists only in memory during an ingest request; it is never logged (pino redact list covers `body.token`, `encryptedSecret`, and `secretNonce`).
 
 ### Resource economics
 

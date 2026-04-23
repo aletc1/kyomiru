@@ -17,10 +17,6 @@ export interface StatusResult {
   queuePosition: number | null
 }
 
-/**
- * Pure decision function for show status transitions. Does not touch the DB.
- * Only called for non-removed shows; removed status is handled in recomputeUserShowState.
- */
 export function decideShowStatus(input: StatusInput): StatusResult {
   const { total, watched, existingStatus, existingTotalEpisodes, existingQueuePosition } = input
 

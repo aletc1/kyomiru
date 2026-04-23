@@ -30,8 +30,7 @@ describe('encrypt / decrypt', () => {
   it('throws when ciphertext is tampered', async () => {
     const { ciphertext, nonce } = await encrypt('secret', TEST_KEY)
     const buf = Buffer.from(ciphertext, 'base64')
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    buf[0] = buf[0]! ^ 0xff
+    buf.writeUInt8(buf.readUInt8(0) ^ 0xff, 0)
     await expect(decrypt(buf.toString('base64'), nonce, TEST_KEY)).rejects.toThrow()
   })
 
