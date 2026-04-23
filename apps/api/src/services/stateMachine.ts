@@ -4,6 +4,41 @@ import { userEpisodeProgress, userShowState, episodes, type showStatusEnum } fro
 
 type ShowStatus = typeof showStatusEnum.enumValues[number]
 
+export interface StatusInput {
+  total: number
+  watched: number
+  existingStatus: ShowStatus
+  existingTotalEpisodes: number
+  existingQueuePosition: number | null
+}
+
+export interface StatusResult {
+  status: ShowStatus
+  queuePosition: number | null
+}
+
+/**
+ * Pure decision function for show status transitions. Does not touch the DB.
+ * Only called for non-removed shows; removed status is handled in recomputeUserShowState.
+ */
+export function decideShowStatus(input: StatusInput): StatusResult {
+  const { total, watched, existingStatus, existingTotalEpisodes, existingQueuePosition } = input
+
+  let status: ShowStatus
+
+  if (total > 0 && watched === total) {
+    status = 'watched'
+  } else if (existingStatus === 'watched' && total > existingTotalEpisodes && watched < total) {
+    status = 'new_content'
+  } else if (existingStatus === 'new_content' && watched < total) {
+    status = 'new_content'
+  } else {
+    status = 'in_progress'
+  }
+
+  return { status, queuePosition: status === 'watched' ? null : existingQueuePosition }
+}
+
 export async function recomputeUserShowState(
   db: DbClient,
   userId: string,
@@ -49,28 +84,13 @@ export async function recomputeUserShowState(
     return
   }
 
-  let newStatus: ShowStatus
-
-  if (total > 0 && watched === total) {
-    newStatus = 'watched'
-  } else if (
-    existing.status === 'watched' &&
-    total > existing.totalEpisodes &&
-    watched < total
-  ) {
-    // Previously fully watched but new episodes appeared
-    newStatus = 'new_content'
-  } else if (existing.status === 'new_content' && watched < total) {
-    // Sticky: stay in new_content until the user fully catches up
-    newStatus = 'new_content'
-  } else if (watched > 0) {
-    newStatus = 'in_progress'
-  } else {
-    newStatus = 'in_progress'
-  }
-
-  // When transitioning to watched, clear queue position
-  const queuePosition = newStatus === 'watched' ? null : existing.queuePosition
+  const { status: newStatus, queuePosition } = decideShowStatus({
+    total,
+    watched,
+    existingStatus: existing.status as ShowStatus,
+    existingTotalEpisodes: existing.totalEpisodes,
+    existingQueuePosition: existing.queuePosition,
+  })
 
   await db
     .update(userShowState)
