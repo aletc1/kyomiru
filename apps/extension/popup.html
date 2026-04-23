@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kyomiru Sync</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #ffffff;
+      --fg: #0f172a;
+      --muted: #64748b;
+      --accent: #2563eb;
+      --accent-fg: #ffffff;
+      --border: #e2e8f0;
+      --success: #16a34a;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --card: #f8fafc;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f172a;
+        --fg: #f1f5f9;
+        --muted: #94a3b8;
+        --accent: #3b82f6;
+        --accent-fg: #ffffff;
+        --border: #1e293b;
+        --success: #22c55e;
+        --warning: #f59e0b;
+        --danger: #ef4444;
+        --card: #1e293b;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      width: 360px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      line-height: 1.4;
+      background: var(--bg);
+      color: var(--fg);
+    }
+    h1 { font-size: 16px; margin: 0 0 4px; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+    .row label { font-size: 12px; font-weight: 500; }
+    input[type=text], input[type=url], input[type=password] {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg);
+      color: var(--fg);
+      font-size: 13px;
+      font-family: inherit;
+    }
+    button {
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg);
+      color: var(--fg);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+    button.danger  { color: var(--danger); border-color: var(--danger); background: transparent; }
+    .btns { display: flex; gap: 8px; }
+    .btns button { flex: 1; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+    .status-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .dot.ok  { background: var(--success); }
+    .dot.warn { background: var(--warning); }
+    .dot.err { background: var(--danger); }
+    .cta {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--warning);
+      line-height: 1.3;
+    }
+    .log {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px;
+      font-family: "SF Mono", Monaco, monospace;
+      font-size: 11px;
+      max-height: 120px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      color: var(--muted);
+    }
+    .log:empty { display: none; }
+    a { color: var(--accent); }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>Kyomiru Sync</h1>
+
+  <!-- Configuration view -->
+  <section id="setup" class="hidden">
+    <p class="muted">Connect this extension to your Kyomiru instance.</p>
+    <div class="row">
+      <label for="kyomiru-url">Kyomiru URL</label>
+      <input id="kyomiru-url" type="url" placeholder="http://localhost:3000" />
+    </div>
+    <div class="row">
+      <label for="kyomiru-token">Extension token</label>
+      <input id="kyomiru-token" type="password" placeholder="kym_ext_…" />
+      <span class="muted">
+        Create one in Kyomiru → Settings → Extension tokens.
+      </span>
+    </div>
+    <div class="btns">
+      <button id="save-btn" class="primary">Connect</button>
+    </div>
+    <div id="setup-log" class="log" style="margin-top:10px;"></div>
+  </section>
+
+  <!-- Main view -->
+  <section id="main" class="hidden">
+    <div class="card">
+      <div class="status-line"><span id="dot-kyomiru" class="dot"></span><span id="kyomiru-status">Not connected</span></div>
+      <div class="status-line"><span id="dot-cr" class="dot"></span><span id="cr-status">Crunchyroll session: unknown</span></div>
+      <div id="cr-cta" class="cta hidden">
+        <div id="cr-cta-text"></div>
+        <button id="open-cr-btn" type="button" style="margin-top:6px; padding:4px 10px; font-size:12px;">Open Crunchyroll</button>
+      </div>
+    </div>
+    <div class="btns" style="margin-bottom:10px;">
+      <button id="sync-btn" class="primary">Sync now</button>
+      <button id="reconfigure-btn">Settings</button>
+    </div>
+    <div id="sync-log" class="log"></div>
+  </section>
+</body>
+<script type="module" src="popup.js"></script>
+</html>

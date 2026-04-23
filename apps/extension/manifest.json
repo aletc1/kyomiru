@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Kyomiru — Crunchyroll Sync",
+  "version": "0.1.0",
+  "description": "Sync your Crunchyroll watch history to your Kyomiru instance via your live browser session.",
+  "permissions": ["storage", "webRequest", "alarms"],
+  "host_permissions": [
+    "*://*.crunchyroll.com/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Kyomiru sync",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}
