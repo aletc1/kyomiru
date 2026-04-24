@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.1.1...kyomiru-v1.1.2) (2026-04-24)
+
+
+### Bug Fixes
+
+* **web:** prevent service worker from intercepting /api navigations ([#20](https://github.com/aletc1/kyomiru/issues/20)) ([db5dc4c](https://github.com/aletc1/kyomiru/commit/db5dc4ca4ffb710eac4bcc7425221be893c5f4dc))
+
 ## [1.1.1](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.1.0...kyomiru-v1.1.1) (2026-04-24)
 
 
