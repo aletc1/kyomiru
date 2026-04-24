@@ -29,9 +29,9 @@ pnpm db:migrate && pnpm db:seed  # create tables and seed provider registry
 pnpm dev                         # api on :3000, web on :5173
 ```
 
-## Crunchyroll extension
+## Chrome extension
 
-Watch history is imported via the Kyomiru Chrome extension, which captures the in-browser Crunchyroll JWT and POSTs normalised history to your Kyomiru instance. See [apps/extension/README.md](./apps/extension/README.md).
+Watch history is imported via the Kyomiru Chrome extension, which captures your in-browser session for supported providers (Crunchyroll and Netflix) and POSTs normalised history to your Kyomiru instance. See [apps/extension/README.md](./apps/extension/README.md).
 
 ## Documentation
 

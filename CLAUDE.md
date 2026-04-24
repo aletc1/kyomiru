@@ -56,10 +56,11 @@ This is a **pnpm + Turborepo monorepo** with three apps and four packages.
 - PWA via `vite-plugin-pwa` with Workbox: images `CacheFirst`, `/api/*` `NetworkFirst` (5s network timeout).
 - Dev proxy: Vite proxies `/api/*` to `localhost:3000`.
 
-**`apps/extension`** — Chrome MV3 extension for Crunchyroll watch-history sync
-- `src/background.ts` service worker observes `chrome.webRequest.onBeforeSendHeaders` on `*.crunchyroll.com/*`, captures the Bearer JWT, and extracts the profile id from `/content/v2/<uuid>/…` (UUID-validated so namespace segments like `discover` are not captured as a profile id).
-- `chrome.alarms` schedules `kyomiru-daily-sync` every 24h so the library refreshes without the user opening the popup.
-- `src/sync.ts` drives the streaming ingest protocol against the Kyomiru API using a Bearer extension token. The extension is the only thing that talks to Crunchyroll — the API never does.
+**`apps/extension`** — Chrome MV3 extension for multi-provider watch-history sync (Crunchyroll, Netflix)
+- `src/providers/types.ts` defines the `ProviderAdapter` interface; `src/providers/index.ts` holds the registry. Each adapter encapsulates everything provider-specific: session capture, history pagination, catalog fetch (if available), and `IngestItem`/`IngestShow` construction.
+- `src/background.ts` service worker registers a `webRequest` listener per adapter that declares `onRequest` (currently Crunchyroll only, for Bearer JWT capture). Netflix uses cookie auth — no listener needed. `chrome.alarms` schedules `kyomiru-daily-sync` every 24 h; the alarm iterates all adapters and syncs those with a valid session.
+- `src/sync.ts` drives the streaming ingest protocol against the Kyomiru API using a Bearer extension token. The extension is the only thing that talks to Crunchyroll or Netflix — the API never does.
+- Popup (`src/popup.ts`) detects the active tab's URL, shows the matching provider's card first, and falls back to listing all adapters on unrecognised pages.
 - Build: custom `scripts/build.mjs` (no Vite/webpack). Vitest for unit tests.
 
 ### Packages
@@ -78,10 +79,10 @@ This is a **pnpm + Turborepo monorepo** with three apps and four packages.
 - `removed` is a soft delete. `recomputeUserShowState` will not overwrite `removed`; it only refreshes the episode counters. `prev_status` exists as a column for future restore logic.
 - Status is recomputed after every ingest and after enrichment upserts new episodes. Transitioning to `watched` clears `queue_position`.
 
-**Sync flow** — streaming, extension-driven:
-1. Extension reads a captured Crunchyroll JWT from `chrome.storage`; aborts if missing.
+**Sync flow** — streaming, extension-driven (runs per provider key):
+1. Extension reads the adapter's captured session from `chrome.storage.session` (`capturedSession:<providerKey>`); aborts if missing or expired.
 2. `POST /api/providers/:key/ingest/start` opens a `sync_runs` row. On HTTP 409 (a prior running run exists), the extension auto-finalizes it and retries once.
-3. `POST /api/providers/:key/ingest/resolve` with all series ids → server returns per-series `{ known, catalogSyncedAt, seasonCoverage }` via `resolveShowCatalogStatus`. Series with sufficient server coverage go through a **fast path** (items-only chunks); the rest go through a **slow path** that first fetches the Crunchyroll catalog in the extension. This is the resolve-before-fetch pattern.
+3. `POST /api/providers/:key/ingest/resolve` with all show ids → server returns per-show `{ known, catalogSyncedAt, seasonCoverage }` via `resolveShowCatalogStatus`. Shows with sufficient server coverage go through a **fast path** (items-only chunks); the rest go through a **slow path** that first fetches the provider catalog in the extension. Crunchyroll fetches seasons+episodes via `/content/v2/cms`; Netflix yields no catalogs and instead synthesises a history-only show tree (the same fallback path that fires when a Crunchyroll catalog fetch fails). This is the resolve-before-fetch pattern.
 4. Streaming `POST /api/providers/:key/ingest/chunk` with `{ items, shows }`. Server upserts `watch_events`, `seasons`/`episodes`/`episode_providers` (idempotent `ON CONFLICT DO NOTHING`), and `user_episode_progress`. Touched show ids and counter deltas are accumulated in Redis (`kyomiru:sync:<key>:<runId>:*`, 1h TTL).
 5. `POST /api/providers/:key/ingest/finalize` → server recomputes `user_show_state` for every touched show, bumps `user_services.last_sync_at`, and marks the run `success`.
 6. The extension checkpoints progress to `chrome.storage` between chunks so a service-worker restart resumes without refetching history.

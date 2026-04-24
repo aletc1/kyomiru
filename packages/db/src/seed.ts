@@ -14,9 +14,10 @@ async function main() {
     {
       key: 'netflix',
       displayName: 'Netflix',
-      enabled: false,
+      enabled: true,
       kind: 'general',
       showUrlTemplate: 'https://www.netflix.com/title/{externalId}',
+      episodeUrlTemplate: 'https://www.netflix.com/watch/{externalId}',
     },
     {
       key: 'prime',

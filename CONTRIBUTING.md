@@ -23,4 +23,4 @@ Providers that can be implemented as a background service (credential-based poll
 5. **Register connect/test/disconnect** in `apps/api/src/routes/services.routes.ts` (the `PROVIDER_INSTANCES` map).
 6. **Seed the provider** — add an `enabled: true` row in `packages/db/src/seed.ts`.
 
-For browser-captured providers (where the server never holds long-lived credentials, as with Crunchyroll), the ingest side lives in the Chrome extension instead of a background worker. Use `apps/extension/` and `apps/extension/README.md` as the reference implementation.
+For browser-captured providers (where the server never holds long-lived credentials, as with Crunchyroll and Netflix), the ingest side lives in the Chrome extension instead of a background worker. Implement a `ProviderAdapter` in `apps/extension/src/providers/` and register it in `apps/extension/src/providers/index.ts`. Use the Crunchyroll adapter (`crunchyroll.ts`) as the reference implementation.

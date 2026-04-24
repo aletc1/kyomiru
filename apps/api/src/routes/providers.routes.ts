@@ -19,7 +19,7 @@ import {
   resolveShowCatalogStatus,
 } from '../services/sync.service.js'
 
-const INGEST_ENABLED_PROVIDERS = new Set(['crunchyroll'])
+const INGEST_ENABLED_PROVIDERS = new Set(['crunchyroll', 'netflix'])
 
 function mapItems(body: IngestBody): HistoryItem[] {
   return body.items.map((i) => ({

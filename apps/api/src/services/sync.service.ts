@@ -65,6 +65,11 @@ export async function upsertShowCatalog(
     if (!seasonId) continue
 
     for (const e of s.episodes) {
+      // `COALESCE(existing, incoming)` preserves any already-set column on the
+      // existing row (e.g. values the extension wrote from a provider's own
+      // catalog) while letting enrichment fill gaps on rows created earlier
+      // without that data (e.g. Netflix history-fallback shows get real
+      // titles / air dates once TMDb enrichment runs).
       const [ep] = await db.insert(episodes).values({
         seasonId,
         showId,
@@ -72,7 +77,14 @@ export async function upsertShowCatalog(
         title: e.title ?? null,
         durationSeconds: e.durationSeconds ?? null,
         airDate: e.airDate ?? null,
-      }).onConflictDoNothing().returning({ id: episodes.id })
+      }).onConflictDoUpdate({
+        target: [episodes.seasonId, episodes.episodeNumber],
+        set: {
+          title: sql`COALESCE(${episodes.title}, EXCLUDED.title)`,
+          durationSeconds: sql`COALESCE(${episodes.durationSeconds}, EXCLUDED.duration_seconds)`,
+          airDate: sql`COALESCE(${episodes.airDate}, EXCLUDED.air_date)`,
+        },
+      }).returning({ id: episodes.id })
 
       const epId = ep?.id ?? (await db.select({ id: episodes.id })
         .from(episodes)

@@ -2,38 +2,23 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Q } from '@/lib/queryKeys'
+import { formatRelative } from '@/lib/utils'
+import { PROVIDER_META } from '@/lib/providers'
 import type { ServiceInfo } from '@kyomiru/shared/contracts/services'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CheckCircle2, XCircle, AlertCircle, Chrome } from 'lucide-react'
-import { formatRelative } from '@/lib/utils'
 
 export const Route = createFileRoute('/services')({
   component: ServicesPage,
 })
-
-const PROVIDER_META: Record<string, { tagline: string; connectionKind: 'extension' | 'bearer' }> = {
-  crunchyroll: {
-    tagline: 'Anime simulcasts. Synced from your browser via the Kyomiru Chrome extension.',
-    connectionKind: 'extension',
-  },
-  netflix: {
-    tagline: 'Movies and TV. Requires a bearer token from the Netflix web app.',
-    connectionKind: 'bearer',
-  },
-  prime: {
-    tagline: 'Prime Video catalogue. Requires a bearer token from the Prime Video web app.',
-    connectionKind: 'bearer',
-  },
-}
 
 function StatusIcon({ status }: { status: ServiceInfo['status'] }) {
   if (status === 'connected') return <CheckCircle2 className="h-5 w-5 text-green-500" />
   if (status === 'error') return <AlertCircle className="h-5 w-5 text-destructive" />
   return <XCircle className="h-5 w-5 text-muted-foreground" />
 }
-
 
 function ServicesPage() {
   const { data: services, isLoading } = useQuery<ServiceInfo[]>({
@@ -56,7 +41,7 @@ function ServicesPage() {
         <p className="text-sm text-muted-foreground">Connect streaming services to sync your watch history.</p>
       </div>
       {(services ?? []).map((svc) => {
-        const meta = PROVIDER_META[svc.providerKey] ?? { tagline: '', connectionKind: 'bearer' as const }
+        const meta = PROVIDER_META[svc.providerKey] ?? { tagline: '', connectionKind: 'bearer' as const, siteUrl: '', siteLabel: '' }
         const lastSync = formatRelative(svc.lastSyncAt)
         return (
           <Card key={svc.providerKey}>

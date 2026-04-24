@@ -1,90 +1,34 @@
 /// <reference types="chrome" />
 
 import {
-  clearCapturedJwt,
+  clearSession,
   getConfig,
-  getCapturedJwt,
   getSyncState,
-  setCapturedJwt,
   setSyncState,
   type SyncState,
 } from './storage.js'
 import { runSync, type SyncEvent } from './sync.js'
-import { CrunchyrollAuthError } from './crunchyroll.js'
+import { allAdapters } from './providers/index.js'
+import { CrunchyrollAuthError } from './providers/crunchyroll.js'
+import { NetflixAuthError } from './providers/netflix.js'
 
 const SYNC_LOG_MAX_LINES = 200
 
-// Broad match so we pick up refreshed tokens from any Crunchyroll request
-// (auth/v1/token, index/v2/*, content/v2/*, etc.), not just watch-history
-// endpoints. The listener short-circuits on requests that don't carry a
-// Bearer header, so the hot path stays cheap.
-const CR_MATCH = '*://*.crunchyroll.com/*'
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-function isValidProfileId(id: string): boolean {
-  return UUID_RE.test(id)
+// Register a webRequest listener for each adapter that implements onRequest.
+for (const adapter of allAdapters()) {
+  if (!adapter.onRequest) continue
+  const bound = adapter.onRequest.bind(adapter)
+  chrome.webRequest.onBeforeSendHeaders.addListener(
+    (details) => { void bound(details).catch((err) => { console.warn(`[Kyomiru] ${adapter.key} onRequest error`, err) }) },
+    { urls: [adapter.hostMatch] },
+    ['requestHeaders', 'extraHeaders'],
+  )
 }
 
-/**
- * Extract the Crunchyroll profile/account id from a URL like
- *   https://www.crunchyroll.com/content/v2/<profile_id>/watch-history?...
- *
- * Only user-scoped UUID segments are accepted — CR also exposes namespace
- * segments under /content/v2/ ("discover", "cms", "accounts", "music", …)
- * which would otherwise be captured and replayed as a bogus profile id,
- * producing 404s at sync time.
- */
-function extractProfileId(url: string): string | null {
-  const match = url.match(/\/content\/v2\/([^/]+)\//)
-  if (!match) return null
-  const candidate = match[1]!
-  return isValidProfileId(candidate) ? candidate : null
-}
-
-// Purge any captured JWT whose profileId isn't a UUID (e.g. "discover" captured
-// by an older build of this extension). Forces a fresh capture from a real
-// user-scoped request on the next CR visit.
-void (async () => {
-  const existing = await getCapturedJwt()
-  if (existing && !isValidProfileId(existing.profileId)) {
-    await clearCapturedJwt()
-  }
-})()
-
-chrome.webRequest.onBeforeSendHeaders.addListener(
-  (details) => {
-    const auth = details.requestHeaders?.find((h) => h.name.toLowerCase() === 'authorization')?.value
-    if (!auth?.startsWith('Bearer ')) return
-    const jwt = auth.slice('Bearer '.length).trim()
-    if (!jwt) return
-
-    void (async () => {
-      const profileId = extractProfileId(details.url)
-      if (profileId) {
-        // Fresh capture from a watch-history-style URL — always refresh both.
-        await setCapturedJwt({ jwt, profileId, capturedAt: Date.now() })
-        return
-      }
-      // Not a /content/v2/<id>/... URL. If we already have a profileId stored,
-      // reuse it so a refreshed token from /auth/v1/token (etc.) still updates
-      // the captured JWT.
-      const existing = await getCapturedJwt()
-      if (!existing) return
-      if (existing.jwt === jwt) return
-      await setCapturedJwt({ jwt, profileId: existing.profileId, capturedAt: Date.now() })
-    })().catch((err) => {
-      console.warn('[Kyomiru] Failed to store captured JWT', err)
-    })
-  },
-  { urls: [CR_MATCH] },
-  ['requestHeaders', 'extraHeaders'],
-)
-
+// On first install, purge any legacy `capturedJwt` key left by older builds.
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[Kyomiru] Extension installed. Open crunchyroll.com once to capture a session JWT.')
-  // Schedule a daily background sync so the library stays current without
-  // requiring the user to open the popup.
+  void chrome.storage.session.remove('capturedJwt').catch(() => {})
+  console.log('[Kyomiru] Extension installed. Open a supported streaming site to capture a session.')
   chrome.alarms.create('kyomiru-daily-sync', { periodInMinutes: 24 * 60, delayInMinutes: 60 })
 })
 
@@ -92,9 +36,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== 'kyomiru-daily-sync') return
   void (async () => {
     const cfg = await getConfig()
-    const jwt = await getCapturedJwt()
-    if (!cfg || !jwt) return
-    void startSync()
+    if (!cfg) return
+    for (const adapter of allAdapters()) {
+      const status = await adapter.getSessionStatus()
+      if (status.kind === 'ok') void startSync(adapter.key)
+    }
   })()
 })
 
@@ -105,7 +51,7 @@ function formatEvent(ev: SyncEvent): string | null {
     case 'progress':
       return `Page ${ev.page} · ${ev.itemsSoFar}${ev.totalKnown ? ` / ${ev.totalKnown}` : ''} items`
     case 'catalog-progress':
-      if (!ev.ok) return `Catalog ${ev.index}/${ev.total} · ${ev.seriesId} failed: ${ev.reason ?? 'unknown'}`
+      if (!ev.ok) return `Catalog ${ev.index}/${ev.total} · ${ev.showId} failed: ${ev.reason ?? 'unknown'}`
       if (ev.index === ev.total || ev.index % 5 === 0) return `Catalog ${ev.index}/${ev.total}…`
       return null
     case 'resolve-done': {
@@ -127,32 +73,28 @@ function formatEvent(ev: SyncEvent): string | null {
   }
 }
 
-async function startSync(): Promise<void> {
-  const existing = await getSyncState()
+async function startSync(providerKey: string): Promise<void> {
+  const existing = await getSyncState(providerKey)
   if (existing.status === 'running') return
 
   const startedAt = Date.now()
   const log: string[] = []
   let state: SyncState = { status: 'running', startedAt, log }
-  await setSyncState({ ...state, log: [...log] })
+  await setSyncState(providerKey, { ...state, log: [...log] })
 
-  // Serialize writes through a promise chain so fire-and-forget emits
-  // don't read-modify-write each other's log.
   let writeChain: Promise<void> = Promise.resolve()
   const scheduleWrite = () => {
     const snapshot: SyncState = { ...state, log: [...log] }
-    writeChain = writeChain.then(() => setSyncState(snapshot)).catch(() => {})
+    writeChain = writeChain.then(() => setSyncState(providerKey, snapshot)).catch(() => {})
   }
 
   try {
-    const result = await runSync((ev) => {
+    const result = await runSync(providerKey, (ev) => {
       const line = formatEvent(ev)
       if (line) {
         log.push(line)
         if (log.length > SYNC_LOG_MAX_LINES) log.splice(0, log.length - SYNC_LOG_MAX_LINES)
       }
-      // Always write — keeps heartbeatAt fresh so getSyncState can detect
-      // a stale "running" state if the service worker dies mid-sync.
       scheduleWrite()
     })
     state = {
@@ -167,9 +109,8 @@ async function startSync(): Promise<void> {
     await writeChain
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    if (err instanceof CrunchyrollAuthError) {
-      await clearCapturedJwt()
-    }
+    if (err instanceof CrunchyrollAuthError) await clearSession('crunchyroll')
+    if (err instanceof NetflixAuthError) await clearSession('netflix')
     state = { status: 'error', startedAt, finishedAt: Date.now(), log, error: message }
     scheduleWrite()
     await writeChain
@@ -177,15 +118,17 @@ async function startSync(): Promise<void> {
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type === 'sync/start') {
+  const providerKey = typeof msg?.providerKey === 'string' ? msg.providerKey : null
+
+  if (msg?.type === 'sync/start' && providerKey) {
     void (async () => {
-      const state = await getSyncState()
+      const state = await getSyncState(providerKey)
       if (state.status === 'running') {
         sendResponse({ ok: false, reason: 'already-running' })
         return
       }
       sendResponse({ ok: true })
-      void startSync()
+      void startSync(providerKey)
     })()
     return true
   }
