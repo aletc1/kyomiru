@@ -71,9 +71,8 @@ export async function buildApp() {
     await api.register(newContentRoutes)
     await api.register(extensionRoutes)
     await api.register(providersRoutes)
+    await api.register(healthzRoutes)
   }, { prefix: '/api' })
-
-  await app.register(healthzRoutes)
 
   return app
 }

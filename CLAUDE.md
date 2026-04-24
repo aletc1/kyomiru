@@ -43,7 +43,7 @@ This is a **pnpm + Turborepo monorepo** with three apps and four packages.
 
 **`apps/api`** — Fastify 5 REST API (Node 20, TypeScript, ESM)
 - Plugin setup in `src/app.ts` (in order): `configPlugin`, `@fastify/cors` (allowlists `WEB_ORIGIN` and any `chrome-extension://` origin), `@fastify/rate-limit` (60 req/min), `@fastify/secure-session` (30-day cookie, `SameSite=Lax`), `dbPlugin`, `redisPlugin`, `enrichmentQueuePlugin`, `authPlugin`, `errorHandlerPlugin`. `ZodError → 400` is mapped in `errorHandler`.
-- Routes under `/api` prefix: `auth`, `me`, `services`, `library`, `shows`, `queue`, `newContent`, `extension`, `providers`. `healthz` is mounted at root.
+- Routes under `/api` prefix: `auth`, `me`, `services`, `library`, `shows`, `queue`, `newContent`, `extension`, `providers`, `healthz`.
 - **One** BullMQ worker in `src/workers/enrichmentWorker.ts`: AniList-first for anime with TMDb fallback, 7-day freshness short-circuit on `shows.enrichedAt`, concurrency 3. When a newly-discovered season is upserted, it fans out a state recompute to every user that has the show in their library.
 - Sync runs **inline** in `src/services/sync.service.ts` — not as a worker — via the extension-driven ingest protocol (see *Sync flow* below).
 - `src/cron.ts` is a one-shot script that enqueues enrichment jobs for shows with `enrichedAt IS NULL`. There is no in-repo scheduler; the daily sync trigger lives in the extension (`chrome.alarms`).

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { sql } from 'drizzle-orm'
 
 export async function healthzRoutes(app: FastifyInstance) {
-  app.get('/healthz', async (_req, reply) => {
+  app.get('/healthz', { config: { rateLimit: false } }, async (_req, reply) => {
     let db = false
     let redis = false
     try {
@@ -13,6 +13,7 @@ export async function healthzRoutes(app: FastifyInstance) {
       await app.redis.ping()
       redis = true
     } catch {}
-    reply.send({ ok: db && redis, db, redis })
+    const ok = db && redis
+    reply.code(ok ? 200 : 503).send({ ok, db, redis })
   })
 }
