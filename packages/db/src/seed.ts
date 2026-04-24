@@ -34,16 +34,18 @@ async function main() {
       showUrlTemplate: 'https://www.crunchyroll.com/series/{externalId}',
       episodeUrlTemplate: 'https://www.crunchyroll.com/watch/{externalId}',
     },
-  ]).onConflictDoUpdate({
-    target: providers.key,
-    set: {
-      displayName: sql`EXCLUDED.display_name`,
-      enabled: sql`EXCLUDED.enabled`,
-      kind: sql`EXCLUDED.kind`,
-      showUrlTemplate: sql`EXCLUDED.show_url_template`,
-      episodeUrlTemplate: sql`EXCLUDED.episode_url_template`,
-    },
-  })
+  ])
+    // Upsert keeps URL templates in sync when seed values change, and intentionally
+    // preserves `enabled` so a provider disabled in dev isn't re-enabled on reseed.
+    .onConflictDoUpdate({
+      target: providers.key,
+      set: {
+        displayName: sql`EXCLUDED.display_name`,
+        kind: sql`EXCLUDED.kind`,
+        showUrlTemplate: sql`EXCLUDED.show_url_template`,
+        episodeUrlTemplate: sql`EXCLUDED.episode_url_template`,
+      },
+    })
 
   console.log('Seed complete')
   await client.end()

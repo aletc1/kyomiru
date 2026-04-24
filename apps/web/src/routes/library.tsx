@@ -2,10 +2,10 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { z } from 'zod'
 import { Search, LayoutGrid, List } from 'lucide-react'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { api } from '@/lib/api'
 import { Q } from '@/lib/queryKeys'
-import { useAppStore } from '@/lib/store'
+import { useAppStore, LIBRARY_STATUS_VALUES, LIBRARY_SORT_VALUES, DEFAULT_LIBRARY_SORT } from '@/lib/store'
 import type { LibraryResponse } from '@kyomiru/shared/contracts/library'
 import type { NewContentCount } from '@kyomiru/shared/contracts/auth'
 import { ShowCard } from '@/components/ShowCard'
@@ -18,8 +18,8 @@ import { Badge } from '@/components/ui/badge'
 
 const searchSchema = z.object({
   q: z.string().optional(),
-  status: z.enum(['in_progress', 'new_content', 'watched', 'removed']).optional(),
-  sort: z.enum(['recent_activity', 'title_asc', 'rating', 'updated_date']).optional(),
+  status: z.enum(LIBRARY_STATUS_VALUES).optional(),
+  sort: z.enum(LIBRARY_SORT_VALUES).optional(),
 })
 
 export const Route = createFileRoute('/library')({
@@ -28,10 +28,26 @@ export const Route = createFileRoute('/library')({
 })
 
 function LibraryPage() {
-  const { q, status, sort = 'recent_activity' } = Route.useSearch()
+  const search = Route.useSearch()
   const navigate = useNavigate({ from: '/library' })
-  const { viewMode, setViewMode } = useAppStore()
-  const [searchInput, setSearchInput] = useState(q ?? '')
+  const { viewMode, setViewMode, libraryStatus, librarySort, setLibraryStatus, setLibrarySort } = useAppStore()
+  const [searchInput, setSearchInput] = useState(search.q ?? '')
+
+  const status = search.status ?? libraryStatus
+  const sort = search.sort ?? librarySort
+  const q = search.q
+
+  // On mount, hydrate missing URL params from the store so the URL stays a
+  // canonical reflection of the active filter/sort (each param independently).
+  useEffect(() => {
+    const patch: { status?: typeof libraryStatus; sort?: typeof librarySort } = {}
+    if (search.status === undefined && libraryStatus !== undefined) patch.status = libraryStatus
+    if (search.sort === undefined && librarySort !== DEFAULT_LIBRARY_SORT) patch.sort = librarySort
+    if (patch.status !== undefined || patch.sort !== undefined) {
+      navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const { data: countData } = useQuery<NewContentCount>({
     queryKey: Q.newContentCount,
@@ -60,6 +76,18 @@ function LibraryPage() {
     navigate({ search: (prev) => ({ ...prev, q: val || undefined }) })
   }, [navigate])
 
+  const handleStatusChange = useCallback((v: string) => {
+    const next = v === 'all' ? undefined : v as typeof status
+    setLibraryStatus(next)
+    navigate({ search: (prev) => ({ ...prev, status: next }) })
+  }, [navigate, setLibraryStatus])
+
+  const handleSortChange = useCallback((v: string) => {
+    const next = v as typeof sort
+    setLibrarySort(next)
+    navigate({ search: (prev) => ({ ...prev, sort: next }) })
+  }, [navigate, setLibrarySort])
+
   return (
     <div className="space-y-4">
       {/* Top bar */}
@@ -81,7 +109,7 @@ function LibraryPage() {
         >
           {viewMode === 'grid' ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
         </Button>
-        <Select value={sort} onValueChange={(v) => navigate({ search: (prev) => ({ ...prev, sort: v as typeof sort }) })}>
+        <Select value={sort} onValueChange={handleSortChange}>
           <SelectTrigger className="w-40">
             <SelectValue placeholder="Sort by" />
           </SelectTrigger>
@@ -95,7 +123,7 @@ function LibraryPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs value={status ?? 'all'} onValueChange={(v) => navigate({ search: (prev) => ({ ...prev, status: v === 'all' ? undefined : v as typeof status }) })}>
+      <Tabs value={status ?? 'all'} onValueChange={handleStatusChange}>
         <TabsList className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="all">All</TabsTrigger>
           <TabsTrigger value="in_progress">In Progress</TabsTrigger>

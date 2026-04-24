@@ -177,7 +177,7 @@ function ShowDetailPage() {
                       <span className="flex-1 truncate">{ep.title ?? `Episode ${ep.episodeNumber}`}</span>
                       {ep.watchedAt && (
                         <span
-                          className="text-xs text-muted-foreground shrink-0 hidden sm:inline"
+                          className="text-xs text-muted-foreground shrink-0 tabular-nums hidden sm:inline"
                           title={new Date(ep.watchedAt).toLocaleString()}
                         >
                           {formatRelative(ep.watchedAt)}
@@ -190,7 +190,7 @@ function ShowDetailPage() {
                       )}
                       <ProviderLinkButton
                         providers={ep.providers.length > 0 ? ep.providers : show.providers}
-                        kind="episode"
+                        kind={ep.providers.length > 0 ? 'episode' : 'show'}
                         size="icon"
                         className="h-7 w-7 shrink-0"
                       />

@@ -17,7 +17,7 @@ export const EpisodeProgressSchema = z.object({
   durationSeconds: z.number().int().nullable(),
   airDate: z.string().nullable(), // ISO date string
   watched: z.boolean(),
-  watchedAt: z.string().nullable(), // ISO datetime
+  watchedAt: z.string().nullable(),
   playheadSeconds: z.number().int(),
   providers: z.array(ProviderLinkSchema),
 })

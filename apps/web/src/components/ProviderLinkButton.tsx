@@ -33,7 +33,8 @@ export function ProviderLinkButton({
   const stopPropagation = (e: React.MouseEvent | React.PointerEvent) => e.stopPropagation()
 
   if (providers.length === 1) {
-    const p = providers[0]!
+    const [p] = providers
+    if (!p) return null
     const label = `${verb} on ${p.displayName}`
     return (
       <Button
