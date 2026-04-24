@@ -1,19 +1,16 @@
 import {
   getConfig,
   setConfig,
-  getCapturedJwt,
   getCheckpoint,
   getLastSync,
   getSyncState,
-  isCapturedJwtExpired,
   isCheckpointStale,
   type ExtensionConfig,
   type SyncState,
-  type CapturedJwt,
 } from './storage.js'
 import { pingKyomiru } from './sync.js'
-
-const CR_PROVIDER = 'crunchyroll'
+import { allAdapters, adapterForTab } from './providers/index.js'
+import type { ProviderAdapter, SessionStatus } from './providers/types.js'
 
 function $(id: string): HTMLElement {
   const el = document.getElementById(id)
@@ -41,99 +38,219 @@ function appendLog(target: HTMLElement, line: string) {
   target.scrollTop = target.scrollHeight
 }
 
-function setDot(id: string, state: 'ok' | 'err' | 'warn' | 'unknown') {
-  const el = $(id)
+function setDot(el: HTMLElement, state: 'ok' | 'err' | 'warn' | 'unknown') {
   el.classList.remove('ok', 'err', 'warn')
   if (state === 'ok') el.classList.add('ok')
   else if (state === 'err') el.classList.add('err')
   else if (state === 'warn') el.classList.add('warn')
 }
 
-function renderJwtStatus(jwt: CapturedJwt | null, hasResumableSync: boolean): { ok: boolean } {
-  const cta = $('cr-cta')
-  const ctaText = $('cr-cta-text')
-  hide(cta)
+// ─── Per-provider card ────────────────────────────────────────────────────────
 
-  if (!jwt) {
-    $('cr-status').textContent = 'Crunchyroll session not captured'
-    setDot('dot-cr', 'err')
-    ctaText.textContent = 'Waiting for your Crunchyroll session. Click below and browse any page — we\u2019ll pick it up automatically.'
-    show(cta)
-    return { ok: false }
-  }
+function buildProviderCard(adapter: ProviderAdapter): {
+  card: HTMLDivElement
+  dotEl: HTMLSpanElement
+  statusEl: HTMLSpanElement
+  ctaEl: HTMLDivElement
+  ctaTextEl: HTMLDivElement
+  openBtn: HTMLButtonElement
+  syncBtn: HTMLButtonElement
+  logEl: HTMLDivElement
+} {
+  const card = document.createElement('div')
+  card.className = 'card'
+  card.dataset['providerKey'] = adapter.key
 
-  if (isCapturedJwtExpired(jwt)) {
-    $('cr-status').textContent = 'Crunchyroll session expired'
-    setDot('dot-cr', 'warn')
-    ctaText.textContent = hasResumableSync
-      ? 'Open Crunchyroll and browse any page — your sync will resume automatically.'
-      : 'Session expired. Open Crunchyroll and browse any page to refresh it.'
-    show(cta)
-    return { ok: false }
-  }
+  const dotEl = document.createElement('span')
+  dotEl.className = 'dot'
 
-  $('cr-status').textContent = `Crunchyroll session captured ${formatRelative(jwt.capturedAt)}`
-  setDot('dot-cr', 'ok')
-  return { ok: true }
+  const statusEl = document.createElement('span')
+  statusEl.textContent = `${adapter.displayName} session: unknown`
+
+  const statusLine = document.createElement('div')
+  statusLine.className = 'status-line'
+  statusLine.appendChild(dotEl)
+
+  const nameEl = document.createElement('span')
+  nameEl.className = 'provider-name'
+  nameEl.textContent = adapter.displayName
+  statusLine.appendChild(nameEl)
+
+  statusLine.appendChild(document.createTextNode(' — '))
+  statusLine.appendChild(statusEl)
+  card.appendChild(statusLine)
+
+  const ctaTextEl = document.createElement('div')
+  const ctaEl = document.createElement('div')
+  ctaEl.className = 'cta hidden'
+  ctaEl.appendChild(ctaTextEl)
+
+  const openBtn = document.createElement('button')
+  openBtn.type = 'button'
+  openBtn.style.cssText = 'margin-top:6px; padding:4px 10px; font-size:12px;'
+  openBtn.textContent = `Open ${adapter.displayName}`
+  ctaEl.appendChild(openBtn)
+  card.appendChild(ctaEl)
+
+  const syncBtns = document.createElement('div')
+  syncBtns.className = 'btns'
+  syncBtns.style.marginTop = '8px'
+
+  const syncBtn = document.createElement('button')
+  syncBtn.className = 'primary'
+  syncBtn.textContent = 'Sync now'
+  syncBtns.appendChild(syncBtn)
+  card.appendChild(syncBtns)
+
+  const logEl = document.createElement('div')
+  logEl.className = 'log'
+  logEl.style.marginTop = '8px'
+  card.appendChild(logEl)
+
+  return { card, dotEl, statusEl, ctaEl, ctaTextEl, openBtn, syncBtn, logEl }
 }
 
-function renderSyncState(state: SyncState, opts: { lastSyncLine: string | null; canSync: boolean }) {
-  const log = $('sync-log')
-  const btn = $('sync-btn') as HTMLButtonElement
+async function renderProviderCard(
+  adapter: ProviderAdapter,
+  elements: ReturnType<typeof buildProviderCard>,
+): Promise<void> {
+  const { dotEl, statusEl, ctaEl, ctaTextEl, openBtn, syncBtn, logEl } = elements
 
-  const isRunning = state.status === 'running'
-  btn.disabled = isRunning || !opts.canSync
-  btn.textContent = isRunning ? 'Syncing…' : 'Sync now'
+  const [sessionStatus, lastSync, syncState, checkpoint] = await Promise.all([
+    adapter.getSessionStatus(),
+    getLastSync(adapter.key),
+    getSyncState(adapter.key),
+    getCheckpoint(adapter.key),
+  ])
 
-  const lines = [...state.log]
-  if (state.status === 'error' && state.error && !state.log.includes(`Error: ${state.error}`)) {
-    lines.push(`Error: ${state.error}`)
+  // Session status
+  renderSessionStatus(adapter, sessionStatus, dotEl, statusEl, ctaEl, ctaTextEl, openBtn)
+
+  const sessionOk = sessionStatus.kind === 'ok'
+  const hasResumableSync = !!(checkpoint && !isCheckpointStale(checkpoint))
+  const isRunning = syncState.status === 'running'
+
+  syncBtn.disabled = isRunning || !sessionOk
+  syncBtn.textContent = isRunning ? 'Syncing…' : 'Sync now'
+
+  // Log
+  const lines = [...syncState.log]
+  if (syncState.status === 'error' && syncState.error && !syncState.log.includes(`Error: ${syncState.error}`)) {
+    lines.push(`Error: ${syncState.error}`)
   }
-  if (!isRunning && state.status === 'idle' && opts.lastSyncLine) {
-    lines.push(opts.lastSyncLine)
+  if (!isRunning && syncState.status === 'idle') {
+    if (hasResumableSync && checkpoint) {
+      lines.push(`Sync in progress: ${checkpoint.showDoneIdx}/${checkpoint.showIds.length} shows. Click Sync to resume.`)
+    } else if (lastSync) {
+      lines.push(
+        lastSync.ok
+          ? `Last sync: ${formatRelative(lastSync.at)} · ${lastSync.itemsIngested} items (${lastSync.itemsNew} new)`
+          : `Last sync failed: ${lastSync.error ?? 'unknown'}`,
+      )
+    }
   }
-  log.textContent = lines.join('\n')
-  log.scrollTop = log.scrollHeight
+  logEl.textContent = lines.join('\n')
+  logEl.scrollTop = logEl.scrollHeight
 }
 
-async function renderMain() {
+function renderSessionStatus(
+  adapter: ProviderAdapter,
+  status: SessionStatus,
+  dotEl: HTMLSpanElement,
+  statusEl: HTMLSpanElement,
+  ctaEl: HTMLDivElement,
+  ctaTextEl: HTMLDivElement,
+  openBtn: HTMLButtonElement,
+) {
+  hide(ctaEl)
+
+  if (status.kind === 'missing') {
+    statusEl.textContent = `${adapter.displayName} session not captured`
+    setDot(dotEl, 'err')
+    ctaTextEl.textContent = `Waiting for your ${adapter.displayName} session. Click below and browse any page — we’ll pick it up automatically.`
+    openBtn.textContent = `Open ${adapter.displayName}`
+    show(ctaEl)
+    return
+  }
+
+  if (status.kind === 'expired') {
+    statusEl.textContent = `${adapter.displayName} session expired`
+    setDot(dotEl, 'warn')
+    ctaTextEl.textContent = status.reason
+    openBtn.textContent = `Open ${adapter.displayName}`
+    show(ctaEl)
+    return
+  }
+
+  statusEl.textContent = status.capturedAt > 0
+    ? `Session captured ${formatRelative(status.capturedAt)}`
+    : 'Session ready'
+  setDot(dotEl, 'ok')
+}
+
+// ─── Main render ──────────────────────────────────────────────────────────────
+
+type CardEntry = { adapter: ProviderAdapter; elements: ReturnType<typeof buildProviderCard> }
+const cardEntries: CardEntry[] = []
+
+async function renderMain(): Promise<void> {
   hide($('setup'))
   show($('main'))
 
-  const [cfg, jwt, lastSync, state, checkpoint] = await Promise.all([
-    getConfig(),
-    getCapturedJwt(),
-    getLastSync(),
-    getSyncState(),
-    getCheckpoint(CR_PROVIDER),
-  ])
-
+  const cfg = await getConfig()
   if (cfg) {
     $('kyomiru-status').textContent = `Kyomiru · ${cfg.userEmail ?? cfg.kyomiruUrl}`
-    setDot('dot-kyomiru', cfg.userEmail ? 'ok' : 'warn')
+    const dot = $('dot-kyomiru')
+    dot.classList.remove('ok', 'err', 'warn')
+    dot.classList.add(cfg.userEmail ? 'ok' : 'warn')
   } else {
     $('kyomiru-status').textContent = 'Not connected'
-    setDot('dot-kyomiru', 'err')
+    const dot = $('dot-kyomiru')
+    dot.classList.remove('ok', 'warn')
+    dot.classList.add('err')
   }
 
-  const hasResumableSync = !!(checkpoint && !isCheckpointStale(checkpoint))
-  const { ok: jwtOk } = renderJwtStatus(jwt, hasResumableSync)
-
-  let lastSyncLine: string | null = null
-  if (hasResumableSync && state.status !== 'running') {
-    lastSyncLine = `Sync in progress: ${checkpoint!.seriesDoneIdx}/${checkpoint!.seriesIds.length} shows. Click Sync to resume.`
-  } else if (lastSync) {
-    lastSyncLine = lastSync.ok
-      ? `Last sync: ${formatRelative(lastSync.at)} · ${lastSync.itemsIngested} items (${lastSync.itemsNew} new)`
-      : `Last sync failed: ${lastSync.error ?? 'unknown'}`
+  for (const { adapter, elements } of cardEntries) {
+    await renderProviderCard(adapter, elements)
   }
-  renderSyncState(state, { lastSyncLine, canSync: !!cfg && jwtOk })
 }
 
-async function renderSetup(prefill?: ExtensionConfig) {
+async function buildProviderCards(): Promise<void> {
+  // Detect active tab to decide which adapters to emphasize.
+  let focusedKey: string | null = null
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+    const focused = adapterForTab(tab?.url)
+    focusedKey = focused?.key ?? null
+  } catch {
+    // tabs API not available in some contexts — fall back to showing all.
+  }
+
+  const container = $('providers-container')
+  container.innerHTML = ''
+  cardEntries.length = 0
+
+  const ordered = focusedKey
+    ? [
+        ...allAdapters().filter((a) => a.key === focusedKey),
+        ...allAdapters().filter((a) => a.key !== focusedKey),
+      ]
+    : allAdapters()
+
+  for (const adapter of ordered) {
+    const elements = buildProviderCard(adapter)
+    elements.openBtn.addEventListener('click', () => {
+      void chrome.tabs.create({ url: adapter.openSessionUrl })
+    })
+    elements.syncBtn.addEventListener('click', () => { void handleSync(adapter.key, elements.syncBtn) })
+    container.appendChild(elements.card)
+    cardEntries.push({ adapter, elements })
+  }
+}
+
+async function renderSetup(prefill?: ExtensionConfig): Promise<void> {
   hide($('main'))
   show($('setup'))
-
   const urlInput = $('kyomiru-url') as HTMLInputElement
   const tokenInput = $('kyomiru-token') as HTMLInputElement
   urlInput.value = prefill?.kyomiruUrl ?? ''
@@ -141,7 +258,7 @@ async function renderSetup(prefill?: ExtensionConfig) {
   $('setup-log').textContent = ''
 }
 
-async function handleSave() {
+async function handleSave(): Promise<void> {
   const urlInput = $('kyomiru-url') as HTMLInputElement
   const tokenInput = $('kyomiru-token') as HTMLInputElement
   const btn = $('save-btn') as HTMLButtonElement
@@ -169,9 +286,6 @@ async function handleSave() {
     const originPattern = `${url.protocol}//${url.host}/*`
     const hasPerm = await chrome.permissions.contains({ origins: [originPattern] })
 
-    // Persist URL/token before the permission prompt — Chrome closes the popup
-    // during `chrome.permissions.request`, so anything after it may never run.
-    // Saving up front lets `init()` finish verification on the next popup open.
     await setConfig({ kyomiruUrl: rawUrl, token })
 
     if (!hasPerm) {
@@ -188,6 +302,7 @@ async function handleSave() {
     const me = await pingKyomiru(rawUrl, token)
     appendLog(log, `Connected as ${me.displayName} (${me.email})`)
     await setConfig({ kyomiruUrl: rawUrl, token, userEmail: me.email })
+    await buildProviderCards()
     await renderMain()
   } catch (err) {
     appendLog(log, err instanceof Error ? err.message : String(err))
@@ -195,14 +310,46 @@ async function handleSave() {
   }
 }
 
-async function handleOpenCrunchyroll() {
-  // /history is user-scoped and triggers a `/content/v2/<profile_id>/watch-history`
-  // fetch on load — that's the request our background listener uses to capture
-  // both the JWT and the UUID profile id needed for sync.
-  await chrome.tabs.create({ url: 'https://www.crunchyroll.com/history' })
+async function handleSync(providerKey: string, btn: HTMLButtonElement): Promise<void> {
+  btn.disabled = true
+
+  const resp = await chrome.runtime.sendMessage({ type: 'sync/start', providerKey }).catch(() => null)
+  if (!resp?.ok) {
+    // Find the log element for this provider's card and surface the message.
+    const card = cardEntries.find((e) => e.adapter.key === providerKey)
+    if (card && resp?.reason !== 'already-running') {
+      card.elements.logEl.textContent = 'Could not start sync. Try reopening the popup.'
+    }
+  }
+
+  await renderMain()
 }
 
-async function verifySavedConfig(cfg: ExtensionConfig) {
+async function handleReconfigure(): Promise<void> {
+  const cfg = await getConfig()
+  await renderSetup(cfg ?? undefined)
+}
+
+function wireStorageListener(): void {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'session' && area !== 'local') return
+
+    const relevant = Object.keys(changes).some((key) =>
+      key.startsWith('syncState:') ||
+      key.startsWith('capturedSession:') ||
+      key.startsWith('lastSync:') ||
+      key.startsWith('syncCheckpoint:'),
+    )
+    if (!relevant) return
+
+    const mainEl = document.getElementById('main')
+    if (mainEl && !mainEl.classList.contains('hidden')) {
+      void renderMain()
+    }
+  })
+}
+
+async function verifySavedConfig(cfg: ExtensionConfig): Promise<void> {
   try {
     const me = await pingKyomiru(cfg.kyomiruUrl, cfg.token)
     await setConfig({ kyomiruUrl: cfg.kyomiruUrl, token: cfg.token, userEmail: me.email })
@@ -212,55 +359,17 @@ async function verifySavedConfig(cfg: ExtensionConfig) {
   }
 }
 
-async function handleSync() {
-  const btn = $('sync-btn') as HTMLButtonElement
-  btn.disabled = true
-
-  const resp = await chrome.runtime.sendMessage({ type: 'sync/start' }).catch(() => null)
-  if (!resp?.ok) {
-    const log = $('sync-log')
-    if (resp?.reason !== 'already-running') {
-      appendLog(log, 'Could not start sync. Try reopening the popup.')
-    }
-  }
-
-  await renderMain()
-}
-
-async function handleReconfigure() {
-  const cfg = await getConfig()
-  await renderSetup(cfg ?? undefined)
-}
-
-function wireStorageListener() {
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'session' && area !== 'local') return
-    const relevant =
-      'syncState' in changes ||
-      'capturedJwt' in changes ||
-      'lastSync' in changes ||
-      `syncCheckpoint:${CR_PROVIDER}` in changes
-    if (!relevant) return
-    const main = document.getElementById('main')
-    if (main && !main.classList.contains('hidden')) {
-      void renderMain()
-    }
-  })
-}
-
-async function init() {
-  $('save-btn').addEventListener('click', handleSave)
-  $('sync-btn').addEventListener('click', handleSync)
-  $('reconfigure-btn').addEventListener('click', handleReconfigure)
-  $('open-cr-btn').addEventListener('click', handleOpenCrunchyroll)
+async function init(): Promise<void> {
+  $('save-btn').addEventListener('click', () => { void handleSave() })
+  $('reconfigure-btn').addEventListener('click', () => { void handleReconfigure() })
   wireStorageListener()
+
+  await buildProviderCards()
 
   const cfg = await getConfig()
   if (cfg) {
     await renderMain()
     if (!cfg.userEmail) {
-      // First save may have been interrupted by the host-permission prompt.
-      // Finish verification now that the popup is open again.
       void verifySavedConfig(cfg)
     }
   } else {

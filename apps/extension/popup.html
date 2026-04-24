@@ -88,10 +88,10 @@
       font-size: 12px;
       margin-bottom: 4px;
     }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-    .dot.ok  { background: var(--success); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+    .dot.ok   { background: var(--success); }
     .dot.warn { background: var(--warning); }
-    .dot.err { background: var(--danger); }
+    .dot.err  { background: var(--danger); }
     .cta {
       margin-top: 6px;
       font-size: 12px;
@@ -113,6 +113,7 @@
     .log:empty { display: none; }
     a { color: var(--accent); }
     .hidden { display: none !important; }
+    .provider-name { font-weight: 600; font-size: 13px; }
   </style>
 </head>
 <body>
@@ -142,17 +143,12 @@
   <section id="main" class="hidden">
     <div class="card">
       <div class="status-line"><span id="dot-kyomiru" class="dot"></span><span id="kyomiru-status">Not connected</span></div>
-      <div class="status-line"><span id="dot-cr" class="dot"></span><span id="cr-status">Crunchyroll session: unknown</span></div>
-      <div id="cr-cta" class="cta hidden">
-        <div id="cr-cta-text"></div>
-        <button id="open-cr-btn" type="button" style="margin-top:6px; padding:4px 10px; font-size:12px;">Open Crunchyroll</button>
-      </div>
     </div>
-    <div class="btns" style="margin-bottom:10px;">
-      <button id="sync-btn" class="primary">Sync now</button>
+    <!-- Per-provider cards are injected here by popup.ts -->
+    <div id="providers-container"></div>
+    <div class="btns" style="margin-bottom:10px; margin-top:4px;">
       <button id="reconfigure-btn">Settings</button>
     </div>
-    <div id="sync-log" class="log"></div>
   </section>
 </body>
 <script type="module" src="popup.js"></script>

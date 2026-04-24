@@ -5,6 +5,10 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/**
+ * Render an ISO timestamp as a compact relative phrase ("2m ago", "3y ago").
+ * Returns null when `iso` is null/undefined so callers can short-circuit rendering.
+ */
 export function formatRelative(iso: string | null | undefined): string | null {
   if (!iso) return null
   const d = new Date(iso)
