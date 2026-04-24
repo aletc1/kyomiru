@@ -14,12 +14,14 @@ export const DEFAULT_LIBRARY_SORT: LibrarySort = 'recent_activity'
 
 interface AppStore {
   sidebarOpen: boolean
+  mobileSidebarOpen: boolean
   viewMode: 'grid' | 'list'
   libraryStatus: LibraryStatus
   librarySort: LibrarySort
   libraryKind: LibraryKind
   libraryProvider: string | undefined
   setSidebarOpen: (open: boolean) => void
+  setMobileSidebarOpen: (open: boolean) => void
   setViewMode: (mode: 'grid' | 'list') => void
   setLibraryStatus: (status: LibraryStatus) => void
   setLibrarySort: (sort: LibrarySort) => void
@@ -31,12 +33,14 @@ export const useAppStore = create<AppStore>()(
   persist(
     (set) => ({
       sidebarOpen: true,
+      mobileSidebarOpen: false,
       viewMode: 'grid',
       libraryStatus: undefined,
       librarySort: DEFAULT_LIBRARY_SORT,
       libraryKind: undefined,
       libraryProvider: undefined,
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
+      setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
       setViewMode: (mode) => set({ viewMode: mode }),
       setLibraryStatus: (status) => set({ libraryStatus: status }),
       setLibrarySort: (sort) => set({ librarySort: sort }),
