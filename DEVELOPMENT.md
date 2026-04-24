@@ -36,7 +36,7 @@ kyomiru/
 ├── apps/
 │   ├── api/        Fastify 5 REST API + BullMQ enrichment worker
 │   ├── web/        React 18 PWA (Vite 6, TanStack Router + Query)
-│   └── extension/  Chrome MV3 extension (Crunchyroll ingest)
+│   └── extension/  Chrome MV3 extension (Crunchyroll + Netflix ingest)
 ├── packages/
 │   ├── shared/     Zod contracts shared by api and web
 │   ├── db/         Drizzle ORM schema, migrations, seed
@@ -90,7 +90,7 @@ pnpm --filter @kyomiru/web e2e -- --ui  # Playwright interactive UI
 pnpm db:up          # start Postgres + Redis (Docker, detached)
 pnpm db:down        # stop containers
 pnpm db:migrate     # apply pending migrations
-pnpm db:seed        # seed provider registry (crunchyroll enabled, netflix/prime disabled)
+pnpm db:seed        # seed provider registry (crunchyroll + netflix enabled, prime disabled)
 pnpm db:generate    # regenerate Drizzle migration files after schema changes
 ```
 
@@ -166,7 +166,7 @@ removed          → prev_status   (user restores)
 
 ### Sync engine
 
-Watch history enters Kyomiru through the Chrome extension (`apps/extension/`). The extension captures the in-browser Crunchyroll JWT, paginates the watch history API, and POSTs a normalised payload to `/api/providers/crunchyroll/ingest`. The server runs the ingest pipeline synchronously (no queue for sync):
+Watch history enters Kyomiru through the Chrome extension (`apps/extension/`). The extension captures the in-browser provider session (Crunchyroll Bearer JWT or Netflix cookies + Shakti metadata), paginates the provider's history API, and streams a normalised payload to `/api/providers/<key>/ingest/{start,chunk,finalize}`. Each provider is implemented as a `ProviderAdapter` in `apps/extension/src/providers/`. The server runs the ingest pipeline synchronously (no queue for sync):
 
 1. Resolve-before-fetch — look up `episode_providers` first; only fetch full show metadata if the show is new to the catalog
 2. Upsert `watch_events` and `user_episode_progress` (idempotent)

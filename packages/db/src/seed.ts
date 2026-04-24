@@ -14,9 +14,10 @@ async function main() {
     {
       key: 'netflix',
       displayName: 'Netflix',
-      enabled: false,
+      enabled: true,
       kind: 'general',
       showUrlTemplate: 'https://www.netflix.com/title/{externalId}',
+      episodeUrlTemplate: 'https://www.netflix.com/watch/{externalId}',
     },
     {
       key: 'prime',
@@ -37,6 +38,7 @@ async function main() {
     target: providers.key,
     set: {
       displayName: sql`EXCLUDED.display_name`,
+      enabled: sql`EXCLUDED.enabled`,
       kind: sql`EXCLUDED.kind`,
       showUrlTemplate: sql`EXCLUDED.show_url_template`,
       episodeUrlTemplate: sql`EXCLUDED.episode_url_template`,

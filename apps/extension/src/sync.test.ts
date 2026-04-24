@@ -1,21 +1,18 @@
 import { describe, it, expect } from 'vitest'
-import { isSeriesFresh, classifySeriesIds } from './sync.js'
-import type { CheckpointHistoryItem } from './storage.js'
+import { isSeriesFresh, classifyShowIds } from './sync.js'
+import type { CheckpointItem } from './providers/types.js'
 
-function makeItem(seasonNumber: number, episodeNumber: number): CheckpointHistoryItem {
+function makeItem(seasonNumber: number, episodeNumber: number): CheckpointItem {
   return {
     id: 'item-1',
-    date_played: '2024-01-01T00:00:00Z',
-    playhead: 100,
-    fully_watched: true,
-    panel: {
-      id: 'panel-1',
-      episode_metadata: { series_id: 'series-1', season_number: seasonNumber, episode_number: episodeNumber },
-    },
+    showId: 'show-1',
+    seasonNumber,
+    episodeNumber,
+    raw: {},
   }
 }
 
-const orphanItem: CheckpointHistoryItem = { id: 'x', date_played: '', playhead: 0, fully_watched: false }
+const orphanItem: CheckpointItem = { id: 'x', raw: {} }
 
 describe('isSeriesFresh', () => {
   it('returns false when series is unknown', () => {
@@ -37,7 +34,6 @@ describe('isSeriesFresh', () => {
   })
 
   it('returns false when an item season is not in coverage at all (regression: old bug)', () => {
-    // Old bug: only checked max-season, so S1 E999 passed when maxSeason=2.
     const info = { known: true, catalogSyncedAt: null, seasonCoverage: { '2': 6 } }
     expect(isSeriesFresh(info, [makeItem(1, 999)])).toBe(false)
   })
@@ -53,33 +49,33 @@ describe('isSeriesFresh', () => {
   })
 })
 
-describe('classifySeriesIds', () => {
+describe('classifyShowIds', () => {
   const freshInfo = { known: true, catalogSyncedAt: null, seasonCoverage: { '1': 10 } }
   const unknownInfo = { known: false, catalogSyncedAt: null, seasonCoverage: {} }
 
-  it('classifies known+fresh series as fresh', () => {
+  it('classifies known+fresh shows as fresh', () => {
     const resolveMap = new Map([['a', freshInfo]])
-    const { freshIds, slowIds } = classifySeriesIds(['a'], resolveMap, { a: [makeItem(1, 5)] })
+    const { freshIds, slowIds } = classifyShowIds(['a'], resolveMap, { a: [makeItem(1, 5)] })
     expect(freshIds).toEqual(['a'])
     expect(slowIds).toEqual([])
   })
 
-  it('classifies unknown series as slow', () => {
+  it('classifies unknown shows as slow', () => {
     const resolveMap = new Map([['b', unknownInfo]])
-    const { freshIds, slowIds } = classifySeriesIds(['b'], resolveMap, { b: [makeItem(1, 1)] })
+    const { freshIds, slowIds } = classifyShowIds(['b'], resolveMap, { b: [makeItem(1, 1)] })
     expect(freshIds).toEqual([])
     expect(slowIds).toEqual(['b'])
   })
 
-  it('classifies series with no resolve info as slow', () => {
-    const { freshIds, slowIds } = classifySeriesIds(['c'], new Map(), {})
+  it('classifies shows with no resolve info as slow', () => {
+    const { freshIds, slowIds } = classifyShowIds(['c'], new Map(), {})
     expect(freshIds).toEqual([])
     expect(slowIds).toEqual(['c'])
   })
 
-  it('classifies stale series (episode beyond coverage) as slow', () => {
+  it('classifies stale shows (episode beyond coverage) as slow', () => {
     const resolveMap = new Map([['d', freshInfo]])
-    const { freshIds, slowIds } = classifySeriesIds(['d'], resolveMap, { d: [makeItem(1, 11)] })
+    const { freshIds, slowIds } = classifyShowIds(['d'], resolveMap, { d: [makeItem(1, 11)] })
     expect(freshIds).toEqual([])
     expect(slowIds).toEqual(['d'])
   })
@@ -87,7 +83,7 @@ describe('classifySeriesIds', () => {
   it('handles a mix correctly', () => {
     const resolveMap = new Map([['a', freshInfo], ['b', unknownInfo]])
     const history = { a: [makeItem(1, 5)], b: [makeItem(1, 1)] }
-    const { freshIds, slowIds } = classifySeriesIds(['a', 'b', 'c'], resolveMap, history)
+    const { freshIds, slowIds } = classifyShowIds(['a', 'b', 'c'], resolveMap, history)
     expect(freshIds).toEqual(['a'])
     expect(slowIds).toContain('b')
     expect(slowIds).toContain('c')

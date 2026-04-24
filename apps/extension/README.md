@@ -1,14 +1,27 @@
 # Kyomiru Chrome Extension
 
-Syncs Crunchyroll watch history from your live browser session into a Kyomiru instance.
+Syncs watch history from supported streaming sites into your Kyomiru instance via your live browser session.
+
+## Supported providers
+
+| Provider | Auth mechanism | How history is captured |
+|---|---|---|
+| **Crunchyroll** | Bearer JWT (captured from outgoing requests) | Background service worker observes `*.crunchyroll.com` requests and stores the short-lived JWT in `chrome.storage.session`. |
+| **Netflix** | Browser cookies (sent automatically) | Extension fetches Netflix's Shakti viewing-activity API using your existing login cookies. No passwords or tokens are stored. |
 
 ## How it works
 
-1. Background service worker observes Crunchyroll's own API requests (`*.crunchyroll.com/content/*`) and captures the short-lived `Authorization: Bearer` JWT into `chrome.storage.session`. Cookies are never touched — Crunchyroll uses a Bearer token for all content API calls.
-2. Popup calls `https://www.crunchyroll.com/content/v2/<profile_id>/watch-history` page by page using the captured JWT, builds a normalized payload, and POSTs it to the configured Kyomiru API.
-3. The Kyomiru API authenticates the request with an extension token (generated in Kyomiru → Settings → Extension tokens) and runs the regular ingest pipeline (`watch_events` → `user_episode_progress` → `user_show_state`).
+1. The background service worker registers a `webRequest` listener for Crunchyroll to capture its Bearer JWT. Netflix uses cookie auth — no capture step needed.
+2. When you click **Sync now** (or the daily alarm fires), the extension for each connected provider:
+   - Paginates the provider's watch-history API.
+   - Asks the Kyomiru server which shows it already has full catalog coverage for (resolve step).
+   - Fetches the per-show catalog for unknown/stale shows (Crunchyroll only; Netflix synthesises a catalog from history and relies on TMDb enrichment).
+   - Streams chunks of `{ items, shows }` to `/api/providers/<key>/ingest/chunk`.
+   - Finalises the sync run so the server recomputes `user_show_state`.
+3. The popup auto-detects the active tab and shows the matching provider's card first. On any other page all provider cards are shown.
+4. A `chrome.alarms` alarm fires every 24 h and syncs all providers whose session is valid — no manual action required.
 
-The Kyomiru server never calls Crunchyroll — that was the whole point of moving the provider into the browser.
+The Kyomiru server never calls Crunchyroll or Netflix directly — that was the whole point of moving the provider into the browser.
 
 ## Build
 
@@ -25,10 +38,12 @@ Outputs an unpacked MV3 extension at `apps/extension/dist/`.
 3. Click **Load unpacked** and pick `apps/extension/dist/`
 4. Click the extension icon → paste your Kyomiru URL (e.g. `http://localhost:3000`) + an extension token from `Kyomiru → Settings → Extension tokens`
 5. Click **Connect**. The popup will request host permission for your Kyomiru origin.
-6. Navigate to `https://www.crunchyroll.com` and open any page (the background worker captures the JWT)
-7. Open the extension popup and click **Sync now**
+6. Navigate to `https://www.crunchyroll.com` or `https://www.netflix.com` and browse any page so the extension establishes a session.
+7. Open the extension popup and click **Sync now** on the relevant provider card.
 
 ## Data boundary
 
-- Crunchyroll JWT: stays in `chrome.storage.session` inside the extension. Never sent to Kyomiru.
-- Kyomiru extension token: stored in `chrome.storage.local`. Used as `Authorization: Bearer` for `/api/extension/me` and `/api/providers/crunchyroll/ingest`.
+- **Crunchyroll JWT** — stays in `chrome.storage.session` under `capturedSession:crunchyroll`. Never sent to Kyomiru.
+- **Netflix session metadata** (`buildId`, `authURL`, `profileGuid`) — stays in `chrome.storage.session` under `capturedSession:netflix`. Refreshed on every sync. Never sent to Kyomiru.
+- **Kyomiru extension token** — stored in `chrome.storage.local`. Used as `Authorization: Bearer` for `/api/extension/me` and `/api/providers/<key>/ingest/*`.
+- **Sync checkpoint** — lightweight resume state per provider stored in `chrome.storage.local` under `syncCheckpoint:<providerKey>`. Discarded after finalize or after 24 h.

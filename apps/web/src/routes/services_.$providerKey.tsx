@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { Q } from '@/lib/queryKeys'
+import { PROVIDER_META } from '@/lib/providers'
 import type { ServiceInfo } from '@kyomiru/shared/contracts/services'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,14 +26,15 @@ function ServiceDetailPage() {
   })
   const svc = services?.find((s) => s.providerKey === providerKey)
   const displayName = svc?.displayName ?? providerKey
+  const meta = PROVIDER_META[providerKey]
 
   return (
     <div className="max-w-md space-y-4">
       <Button variant="ghost" size="sm" onClick={() => navigate({ to: '/services' })}>
         <ArrowLeft className="h-4 w-4 mr-2" /> Back
       </Button>
-      {providerKey === 'crunchyroll' ? (
-        <CrunchyrollCard svc={svc} displayName={displayName} />
+      {meta?.connectionKind === 'extension' ? (
+        <ExtensionServiceCard svc={svc} providerKey={providerKey} displayName={displayName} />
       ) : (
         <BearerTokenCard svc={svc} providerKey={providerKey} displayName={displayName} />
       )}
@@ -40,12 +42,21 @@ function ServiceDetailPage() {
   )
 }
 
-function CrunchyrollCard({ svc, displayName }: { svc: ServiceInfo | undefined; displayName: string }) {
+function ExtensionServiceCard({
+  svc,
+  providerKey,
+  displayName,
+}: {
+  svc: ServiceInfo | undefined
+  providerKey: string
+  displayName: string
+}) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const meta = PROVIDER_META[providerKey]
 
   const disconnect = useMutation({
-    mutationFn: () => api.post(`/services/crunchyroll/disconnect`),
+    mutationFn: () => api.post(`/services/${providerKey}/disconnect`),
     onSuccess: () => {
       toast.success('Disconnected. Your watched data is preserved.')
       queryClient.invalidateQueries({ queryKey: Q.services })
@@ -85,7 +96,7 @@ function CrunchyrollCard({ svc, displayName }: { svc: ServiceInfo | undefined; d
         ) : (
           <>
             <p className="text-sm text-muted-foreground">
-              Crunchyroll syncs via your browser session through a Chrome extension — no passwords stored.
+              {displayName} syncs via your browser session through a Chrome extension — no passwords stored.
             </p>
             <ol className="space-y-3 text-sm list-decimal list-inside">
               <li>
@@ -105,7 +116,11 @@ function CrunchyrollCard({ svc, displayName }: { svc: ServiceInfo | undefined; d
                 Open the extension popup and paste your Kyomiru URL + the token
               </li>
               <li>
-                Log in to <a href="https://www.crunchyroll.com" target="_blank" rel="noreferrer" className="underline">crunchyroll.com</a>, then click <strong>Sync now</strong> in the extension
+                Log in to{' '}
+                <a href={meta?.siteUrl} target="_blank" rel="noreferrer" className="underline">
+                  {meta?.siteLabel ?? displayName}
+                </a>
+                , then click <strong>Sync now</strong> in the extension
               </li>
             </ol>
             <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">

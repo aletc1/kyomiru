@@ -83,6 +83,7 @@ export async function showsRoutes(app: FastifyInstance) {
               durationSeconds: e.durationSeconds,
               airDate: e.airDate?.toString() ?? null,
               watched: p?.watched ?? false,
+              watchedAt: p?.watchedAt?.toISOString() ?? null,
               playheadSeconds: p?.playheadSeconds ?? 0,
               providers: episodeProviderMap.get(e.id) ?? [],
             }
