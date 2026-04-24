@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.3.0...kyomiru-v1.4.0) (2026-04-24)
+
+
+### Features
+
+* i18n (es-ES, fr-FR) across web, landing, and extension ([#28](https://github.com/aletc1/kyomiru/issues/28)) ([b2c1ee0](https://github.com/aletc1/kyomiru/commit/b2c1ee06e15c607d6bbdcdcabbcdcbfc7504f4e1))
+
+
+### Bug Fixes
+
+* **web:** hamburger button now opens sidebar drawer on mobile ([#29](https://github.com/aletc1/kyomiru/issues/29)) ([62510a9](https://github.com/aletc1/kyomiru/commit/62510a981eb536a55076b6c1458e0cc0562183ef))
+
 ## [1.3.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.2.0...kyomiru-v1.3.0) (2026-04-24)
 
 
