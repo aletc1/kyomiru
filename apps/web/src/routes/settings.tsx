@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { Q } from '@/lib/queryKeys'
@@ -15,8 +15,20 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { Copy, Trash2, Plus } from 'lucide-react'
 import { useExtensionTokens } from '@/hooks/useExtensionTokens'
+
+const AUTO_LOCALE = 'auto'
+const LOCALE_OPTIONS = [
+  { value: AUTO_LOCALE, label: 'Auto (browser language)' },
+  { value: 'en-US', label: 'English' },
+  { value: 'ja-JP', label: 'Japanese (日本語)' },
+  { value: 'es-ES', label: 'Spanish (Español)' },
+  { value: 'fr-FR', label: 'French (Français)' },
+]
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
@@ -43,8 +55,49 @@ function SettingsPage() {
           </CardContent>
         </Card>
       )}
+      {user && <LanguageCard user={user} />}
       <DevicesCard />
     </div>
+  )
+}
+
+function LanguageCard({ user }: { user: User }) {
+  const queryClient = useQueryClient()
+  const setLocale = useMutation({
+    mutationFn: (locale: string | null) => api.patch('/me', { preferredLocale: locale }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: Q.me })
+      queryClient.invalidateQueries({ queryKey: Q.library({}) })
+      queryClient.invalidateQueries({ queryKey: ['show'] })
+      toast.success('Language updated')
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Content Language</CardTitle></CardHeader>
+      <CardContent className="space-y-2">
+        <p className="text-xs text-muted-foreground">
+          Show and episode titles will be displayed in this language where available.
+        </p>
+        <Label htmlFor="locale-select">Preferred language</Label>
+        <Select
+          value={user.preferredLocale ?? AUTO_LOCALE}
+          onValueChange={(v) => setLocale.mutate(v === AUTO_LOCALE ? null : v)}
+          disabled={setLocale.isPending}
+        >
+          <SelectTrigger id="locale-select" className="w-64">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {LOCALE_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </CardContent>
+    </Card>
   )
 }
 

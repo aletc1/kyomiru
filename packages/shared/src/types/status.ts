@@ -17,7 +17,7 @@ export type SyncStatus = (typeof SYNC_STATUSES)[number]
 export const SERVICE_STATUSES = ['connected', 'disconnected', 'error'] as const
 export type ServiceStatus = (typeof SERVICE_STATUSES)[number]
 
-export const SORT_OPTIONS = ['recent_activity', 'title_asc', 'rating', 'last_watched', 'latest_air_date'] as const
+export const SORT_OPTIONS = ['recent_activity', 'title_asc', 'rating', 'last_watched', 'latest_air_date', 'queue_position'] as const
 export type SortOption = (typeof SORT_OPTIONS)[number]
 
 export const GROUP_OPTIONS = ['none', 'provider', 'genre', 'rating', 'last_activity'] as const

@@ -1,9 +1,11 @@
 import {
   pgTable, pgEnum, uuid, text, integer, boolean,
   timestamp, jsonb, smallint, date, numeric, index,
-  uniqueIndex, AnyPgColumn,
+  uniqueIndex, AnyPgColumn, customType,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
+
+const tsvector = customType<{ data: string }>({ dataType: () => 'tsvector' })
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
 export const showStatusEnum = pgEnum('show_status', ['in_progress', 'new_content', 'watched', 'removed'])
@@ -30,6 +32,7 @@ export const users = pgTable('users', {
   email: text('email').notNull().unique(),
   displayName: text('display_name').notNull(),
   avatarUrl: text('avatar_url'),
+  preferredLocale: text('preferred_locale'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
@@ -71,6 +74,9 @@ export const shows = pgTable('shows', {
   enrichmentAttempts: integer('enrichment_attempts').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  titles: jsonb('titles').$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
+  descriptions: jsonb('descriptions').$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
+  searchTsv: tsvector('search_tsv'),
 })
 
 // ─── Global: show <> provider mapping ────────────────────────────────────────
@@ -95,6 +101,7 @@ export const seasons = pgTable('seasons', {
   title: text('title'),
   airDate: date('air_date'),
   episodeCount: integer('episode_count').notNull().default(0),
+  titles: jsonb('titles').$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
 }, (t) => [
   uniqueIndex('seasons_show_number_idx').on(t.showId, t.seasonNumber),
   index('seasons_show_idx').on(t.showId),
@@ -107,6 +114,8 @@ export const episodes = pgTable('episodes', {
   showId: uuid('show_id').notNull().references(() => shows.id, { onDelete: 'cascade' }),
   episodeNumber: integer('episode_number').notNull(),
   title: text('title'),
+  titles: jsonb('titles').$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
+  descriptions: jsonb('descriptions').$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
   durationSeconds: integer('duration_seconds'),
   airDate: date('air_date'),
 }, (t) => [
@@ -161,6 +170,7 @@ export const userShowState = pgTable('user_show_state', {
   showId: uuid('show_id').notNull().references(() => shows.id, { onDelete: 'cascade' }),
   status: showStatusEnum('status').notNull(),
   prevStatus: showStatusEnum('prev_status'),
+  kindOverride: showKindEnum('kind_override'),
   rating: smallint('rating'),
   favoritedAt: timestamp('favorited_at', { withTimezone: true }),
   queuePosition: integer('queue_position'),

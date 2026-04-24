@@ -13,6 +13,9 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().default(3000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   TMDB_API_KEY: z.string().optional(),
+  ENRICHMENT_LOCALES: z.string().optional().default('en-US,ja-JP,es-ES,fr-FR').transform(
+    (s) => s.split(',').map((l) => l.trim()).filter(Boolean),
+  ),
   PROVIDERS_FIXTURE: z.string().optional(),
   SENTRY_DSN: z.string().optional(),
   MOCK_GOOGLE_AUTH_USER: z.string().email().optional(),

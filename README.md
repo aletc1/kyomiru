@@ -15,7 +15,9 @@ Kyomiru (kyō + miru, "today I watch") is a self-hostable PWA for tracking your 
 - **Watched** — fully consumed shows
 - **Removed** — soft-deleted shows, restorable at any time
 - **Watch Queue** — drag-and-drop prioritised list of shows to watch next
-- **Nightly enrichment** — automated metadata refresh from AniList and TMDb
+- **Multi-language content** — show, season, and episode titles/descriptions stored in up to four locales (en-US, ja-JP, es-ES, fr-FR); served in the user's preferred language
+- **Automatic anime reclassification** — shows imported as `tv` (e.g. Netflix) are promoted to `anime` when TMDB signals Japanese origin + Animation genre, or when AniList returns a high-confidence match; per-user kind override available
+- **Nightly enrichment** — automated metadata refresh from AniList and TMDb, now multi-locale
 - **PWA** — installable on desktop and mobile; offline library via service worker
 
 ## Tech stack
@@ -72,6 +74,7 @@ See [`.env.self-host.example`](./.env.self-host.example) for every self-host var
 | Variable | Purpose |
 |---|---|
 | `TMDB_API_KEY` | TMDb metadata enrichment for non-anime shows — [get one free](https://www.themoviedb.org/settings/api) |
+| `ENRICHMENT_LOCALES` | Comma-separated locales fetched from TMDb during enrichment. Defaults to `en-US,ja-JP,es-ES,fr-FR` |
 | `KYOMIRU_VERSION` | Pin a release tag (e.g. `0.2.1`). Defaults to `latest` |
 | `KYOMIRU_PORT` | Host port for the web container. Defaults to `8080` |
 | `SENTRY_DSN` | Error reporting |

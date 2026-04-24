@@ -34,7 +34,10 @@ const MEDIA_QUERY = `
 
 export interface AniListMatch {
   id: number
-  title: string
+  /** Best available English-first title for use as canonicalTitle. */
+  canonicalTitle: string
+  /** All available title variants keyed by locale: en, ja, ja-Latn. */
+  titles: Record<string, string>
   description?: string
   coverUrl?: string
   genres: string[]
@@ -70,8 +73,13 @@ export async function searchAniList(title: string, _year?: number): Promise<AniL
       (best, c) => Math.max(best, jaroWinkler(t, c.toLowerCase())),
       0,
     )
-    const resultTitle = media.title.english ?? media.title.romaji ?? media.title.native ?? ''
+    const canonicalTitle = media.title.english ?? media.title.romaji ?? media.title.native ?? ''
     if (confidence < 0.8) return null
+
+    const titles: Record<string, string> = {}
+    if (media.title.english) titles['en'] = media.title.english
+    if (media.title.romaji) titles['ja-Latn'] = media.title.romaji
+    if (media.title.native) titles['ja'] = media.title.native
 
     const desc = media.description?.replace(/<[^>]*>/g, '')
     const cover = media.coverImage?.extraLarge ?? media.coverImage?.large
@@ -79,7 +87,8 @@ export async function searchAniList(title: string, _year?: number): Promise<AniL
     const rating = typeof media.averageScore === 'number' ? media.averageScore / 10 : undefined
     return {
       id: media.id,
-      title: resultTitle,
+      canonicalTitle,
+      titles,
       ...(desc && { description: desc }),
       ...(cover && { coverUrl: cover }),
       genres: media.genres ?? [],

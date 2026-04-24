@@ -6,7 +6,7 @@ async function main() {
   const app = await buildApp()
   const { config } = app
 
-  const enrichWorker = createEnrichmentWorker(app.db, app.redis, config.TMDB_API_KEY)
+  const enrichWorker = createEnrichmentWorker(app.db, app.redis, config.TMDB_API_KEY, config.ENRICHMENT_LOCALES)
 
   await app.listen({ port: config.PORT, host: '0.0.0.0' })
 

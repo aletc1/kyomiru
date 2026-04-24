@@ -5,6 +5,7 @@ export const UserSchema = z.object({
   email: z.string().email(),
   displayName: z.string(),
   avatarUrl: z.string().nullable(),
+  preferredLocale: z.string().nullable(),
 })
 
 export const NewContentCountSchema = z.object({

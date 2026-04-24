@@ -28,9 +28,10 @@ pnpm -F @kyomiru/api test
 pnpm -F @kyomiru/web typecheck
 
 # One-shot API scripts (not scheduled in-repo)
-pnpm -F @kyomiru/api cron:run               # Enqueue enrichment for shows with no enrichedAt
-pnpm -F @kyomiru/api backfill:enrichment    # Re-enqueue enrichment for all shows
-pnpm -F @kyomiru/api backfill:state         # Recompute user_show_state for all users
+pnpm -F @kyomiru/api cron:run                  # Enqueue enrichment for shows with no enrichedAt
+pnpm -F @kyomiru/api backfill:enrichment       # Re-enqueue enrichment for all shows
+pnpm -F @kyomiru/api backfill:state            # Recompute user_show_state for all users
+pnpm -F @kyomiru/api backfill:translations     # Reset enrichedAt for all shows to re-fetch multi-locale titles
 ```
 
 The Docker Compose file lives at `infra/compose/docker-compose.dev.yml`.
@@ -43,10 +44,12 @@ This is a **pnpm + Turborepo monorepo** with three apps and four packages.
 
 **`apps/api`** — Fastify 5 REST API (Node 20, TypeScript, ESM)
 - Plugin setup in `src/app.ts` (in order): `configPlugin`, `@fastify/cors` (allowlists `WEB_ORIGIN` and any `chrome-extension://` origin), `@fastify/rate-limit` (60 req/min), `@fastify/secure-session` (30-day cookie, `SameSite=Lax`), `dbPlugin`, `redisPlugin`, `enrichmentQueuePlugin`, `authPlugin`, `errorHandlerPlugin`. `ZodError → 400` is mapped in `errorHandler`.
-- Routes under `/api` prefix: `auth`, `me`, `services`, `library`, `shows`, `queue`, `newContent`, `extension`, `providers`, `healthz`.
-- **One** BullMQ worker in `src/workers/enrichmentWorker.ts`: AniList-first for anime with TMDb fallback, 7-day freshness short-circuit on `shows.enrichedAt`, concurrency 3. When a newly-discovered season is upserted, it fans out a state recompute to every user that has the show in their library.
+- Routes under `/api` prefix: `auth`, `me` (GET + PATCH `preferredLocale`), `services`, `library`, `shows`, `queue`, `newContent`, `extension`, `providers`, `healthz`.
+- `src/util/locale.ts` — `pickLocalized(map, locales, fallback)` and `resolveRequestLocales(acceptLanguage, preferredLocale)` used by library and show routes to serve titles/descriptions in the request locale.
+- **One** BullMQ worker in `src/workers/enrichmentWorker.ts`: always calls TMDb first (classification signals + multi-locale titles/descriptions), then AniList when the show is classified as anime. `classifyKind` (`src/services/classifyKind.ts`) promotes `tv→anime` on Japanese-origin Animation shows or high-confidence AniList matches. 7-day freshness short-circuit on `shows.enrichedAt`, concurrency 3. When a newly-discovered season is upserted, it fans out a state recompute to every user that has the show in their library.
 - Sync runs **inline** in `src/services/sync.service.ts` — not as a worker — via the extension-driven ingest protocol (see *Sync flow* below).
 - `src/cron.ts` is a one-shot script that enqueues enrichment jobs for shows with `enrichedAt IS NULL`. There is no in-repo scheduler; the daily sync trigger lives in the extension (`chrome.alarms`).
+- Library search uses `shows.search_tsv @@ websearch_to_tsquery('simple', q)` (GIN index `shows_search_tsv_idx`); the trigger was rebuilt in migration 0009 to concatenate all JSONB locale values so cross-language searches work. Kind filter uses `COALESCE(kindOverride, kind)`.
 
 **`apps/web`** — React 18 PWA (Vite 6, TanStack Router, TanStack Query)
 - File-based routing in `src/routes/`; session guard in `__root.tsx`. Route tree auto-generated to `src/routeTree.gen.ts`.
@@ -66,8 +69,8 @@ This is a **pnpm + Turborepo monorepo** with three apps and four packages.
 ### Packages
 
 - **`packages/shared`** — Zod contracts (`auth`, `ingest`, `library`, `services`, `shows`, `sync`) shared by api/web/extension. Single source of truth for request/response shapes.
-- **`packages/db`** — Drizzle ORM schema + raw SQL migrations. Global tables: `providers`, `shows`, `show_providers`, `seasons`, `episodes`, `episode_providers`. User-scoped: `users`, `user_services`, `watch_events`, `user_episode_progress`, `user_show_state` (carries `prev_status`, `queue_position`, `rating`), `sync_runs`, `content_hashes`, `extension_tokens`. Exports `@kyomiru/db/client` and `@kyomiru/db/schema`.
-- **`packages/providers`** — **Enrichment** provider abstraction only: AniList (anime), TMDb (non-anime / fallback). Watch-history extraction lives in the extension, not here.
+- **`packages/db`** — Drizzle ORM schema + raw SQL migrations. Global tables: `providers`, `shows` (has JSONB `titles`, `descriptions` locale maps; `search_tsv` tsvector covering all locales), `show_providers`, `seasons` (JSONB `titles`), `episodes` (JSONB `titles`, `descriptions`), `episode_providers`. User-scoped: `users` (has `preferred_locale`), `user_services`, `watch_events`, `user_episode_progress`, `user_show_state` (carries `prev_status`, `queue_position`, `rating`, `kind_override`), `sync_runs`, `content_hashes`, `extension_tokens`. Exports `@kyomiru/db/client` and `@kyomiru/db/schema`.
+- **`packages/providers`** — **Enrichment** provider abstraction only: AniList (`AniListMatch` has `canonicalTitle` + `titles: Record<string,string>` for en/ja/ja-Latn), TMDb (`TMDbMatch` has `originalLanguage`, `originCountry`; `fetchTMDbShowTree` accepts `locales[]` and uses `append_to_response=translations` for a single-round-trip locale map). Watch-history extraction lives in the extension, not here.
 - **`packages/config`** — Shared TypeScript `tsconfig` presets.
 
 ### Key Domain Concepts
@@ -102,7 +105,7 @@ This is a **pnpm + Turborepo monorepo** with three apps and four packages.
 
 ### Environment
 
-All variables documented in `.env.example`. Required: `DATABASE_URL`, `REDIS_URL`, `APP_SECRET_KEY`, `SESSION_SECRET`, `WEB_ORIGIN`, `API_ORIGIN`, plus Google OIDC creds (unless `MOCK_GOOGLE_AUTH_USER` is set). Optional: `TMDB_API_KEY`, `SENTRY_DSN`, `PROVIDERS_FIXTURE`. Validation is done by Zod in `src/plugins/env.ts`; `src/plugins/config.ts` is the Fastify wrapper that decorates `app.config`.
+All variables documented in `.env.example`. Required: `DATABASE_URL`, `REDIS_URL`, `APP_SECRET_KEY`, `SESSION_SECRET`, `WEB_ORIGIN`, `API_ORIGIN`, plus Google OIDC creds (unless `MOCK_GOOGLE_AUTH_USER` is set). Optional: `TMDB_API_KEY`, `ENRICHMENT_LOCALES` (comma-separated, default `en-US,ja-JP,es-ES,fr-FR`), `SENTRY_DSN`, `PROVIDERS_FIXTURE`. Validation is done by Zod in `src/plugins/env.ts`; `src/plugins/config.ts` is the Fastify wrapper that decorates `app.config`.
 
 ### Testing
 

@@ -34,7 +34,7 @@ export function WatchQueue() {
   const queryClient = useQueryClient()
   const { data, isLoading } = useQuery<LibraryResponse>({
     queryKey: Q.queue,
-    queryFn: () => api.get<LibraryResponse>('/library?sort=queue_position&status=in_progress&limit=20'),
+    queryFn: () => api.get<LibraryResponse>('/library?sort=queue_position&limit=20'),
     staleTime: 30_000,
   })
 

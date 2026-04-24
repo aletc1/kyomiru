@@ -8,6 +8,7 @@ import { searchTMDb, fetchTMDbShowTree } from '@kyomiru/providers/enrichment/tmd
 import type { SeasonTree } from '@kyomiru/providers/types'
 import { upsertShowCatalog } from '../services/sync.service.js'
 import { recomputeUserShowState } from '../services/stateMachine.js'
+import { classifyKind } from '../services/classifyKind.js'
 import { logger } from '../util/logger.js'
 
 export const ENRICHMENT_QUEUE = 'enrichment'
@@ -71,7 +72,12 @@ async function refreshLatestAirDate(db: DbClient, showId: string): Promise<void>
   }
 }
 
-export function createEnrichmentWorker(db: DbClient, redis: Redis, tmdbApiKey: string | undefined) {
+export function createEnrichmentWorker(
+  db: DbClient,
+  redis: Redis,
+  tmdbApiKey: string | undefined,
+  locales: string[] = ['en-US'],
+) {
   return new Worker<EnrichmentJobData>(
     ENRICHMENT_QUEUE,
     async (job) => {
@@ -89,57 +95,112 @@ export function createEnrichmentWorker(db: DbClient, redis: Redis, tmdbApiKey: s
 
       let matched = false
       let seasonTrees: SeasonTree[] = []
+      const existingTitles = (show.titles as Record<string, string>) ?? {}
+      const existingDescriptions = (show.descriptions as Record<string, string>) ?? {}
+      let mergedTitles: Record<string, string> = { ...existingTitles }
+      let mergedDescriptions: Record<string, string> = { ...existingDescriptions }
 
-      if (show.kind === 'anime') {
-        const result = await searchAniList(show.canonicalTitle, show.year ?? undefined)
-        if (result) {
-          seasonTrees = aniListTreeToSeasons(result)
-          await db.update(shows).set({
-            description: show.description ?? result.description ?? null,
-            coverUrl: show.coverUrl ?? result.coverUrl ?? null,
-            genres: show.genres.length > 0 ? show.genres : result.genres,
-            year: show.year ?? result.year ?? null,
-            anilistId: show.anilistId ?? result.id,
-            rating: result.rating !== undefined ? result.rating.toFixed(1) : show.rating,
-            enrichedAt: new Date(),
-            enrichmentAttempts: (show.enrichmentAttempts ?? 0) + 1,
-          }).where(eq(shows.id, showId))
-          matched = true
+      // Step 1: Always try TMDB — it gives us classification signals (originalLanguage,
+      // genres) and multi-locale show/episode titles regardless of kind.
+      let tmdbMatch = null
+      let tmdbTree = null
+      if (tmdbApiKey) {
+        tmdbMatch = await searchTMDb(show.canonicalTitle, tmdbApiKey, show.year ?? undefined)
+        if (tmdbMatch) {
+          tmdbTree = await fetchTMDbShowTree(tmdbMatch.id, tmdbApiKey, locales)
+          if (tmdbTree) {
+            mergedTitles = { ...mergedTitles, ...tmdbTree.titles }
+            mergedDescriptions = { ...mergedDescriptions, ...tmdbTree.descriptions }
+            seasonTrees = tmdbTree.seasons
+          }
         }
       }
 
-      if (!matched && tmdbApiKey) {
-        const result = await searchTMDb(show.canonicalTitle, tmdbApiKey, show.year ?? undefined)
-        if (result) {
-          const tree = await fetchTMDbShowTree(result.id, tmdbApiKey)
-          const genres = tree?.genres.length ? tree.genres : result.genres
-          const rating = tree?.rating ?? result.rating
-          seasonTrees = tree?.seasons ?? []
-          await db.update(shows).set({
-            description: show.description ?? result.description ?? null,
-            coverUrl: show.coverUrl ?? result.coverUrl ?? null,
-            genres: show.genres.length > 0 ? show.genres : genres,
-            year: show.year ?? result.year ?? null,
-            tmdbId: show.tmdbId ?? result.id,
-            rating: rating !== undefined ? rating.toFixed(1) : show.rating,
-            enrichedAt: new Date(),
-            enrichmentAttempts: (show.enrichmentAttempts ?? 0) + 1,
-          }).where(eq(shows.id, showId))
-          matched = true
+      // Step 2: Classify kind using TMDB signals. This may promote a Netflix
+      // show from 'tv' to 'anime' if the TMDB data says Japanese animation.
+      const classifiedKind = classifyKind(show.kind as 'anime' | 'tv' | 'movie', { tmdb: tmdbMatch })
+
+      // Step 3: If the show is (or was reclassified to) anime, try AniList.
+      // AniList titles win for anime and give the definitive episode count.
+      let anilistMatch = null
+      if (classifiedKind === 'anime' || show.kind === 'anime') {
+        anilistMatch = await searchAniList(show.canonicalTitle, show.year ?? undefined)
+        if (anilistMatch) {
+          // AniList titles merged on top of TMDB titles — AniList is authoritative for anime.
+          mergedTitles = { ...mergedTitles, ...anilistMatch.titles }
+          // If AniList has a better episode structure than TMDB, prefer it.
+          const anilistSeasons = aniListTreeToSeasons(anilistMatch)
+          if (anilistSeasons.length > 0 && seasonTrees.length === 0) {
+            seasonTrees = anilistSeasons
+          }
         }
       }
 
-      if (!matched) {
+      // Step 4: Re-classify with both signals (AniList match may raise confidence).
+      const finalKind = classifyKind(
+        classifiedKind,
+        { tmdb: tmdbMatch, anilist: anilistMatch },
+      )
+
+      // Ensure 'en' key is always populated from canonical title if not set.
+      if (!mergedTitles['en'] && show.canonicalTitle) mergedTitles['en'] = show.canonicalTitle
+      if (!mergedDescriptions['en'] && show.description) mergedDescriptions['en'] = show.description
+
+      // Derive the canonical title (English-first, fallback to existing).
+      const newCanonicalTitle =
+        (anilistMatch?.canonicalTitle) ??
+        mergedTitles['en'] ??
+        tmdbMatch?.title ??
+        show.canonicalTitle
+
+      const newDescription =
+        mergedDescriptions['en'] ??
+        anilistMatch?.description ??
+        tmdbMatch?.description ??
+        show.description ??
+        null
+
+      if (tmdbMatch || anilistMatch) {
+        matched = true
+
+        const genres =
+          show.genres.length > 0
+            ? show.genres
+            : (tmdbTree?.genres.length ? tmdbTree.genres : (anilistMatch?.genres ?? []))
+        const rating =
+          anilistMatch?.rating !== undefined
+            ? anilistMatch.rating
+            : (tmdbTree?.rating ?? tmdbMatch?.rating ?? null)
+        const coverUrl = show.coverUrl ?? anilistMatch?.coverUrl ?? tmdbMatch?.coverUrl ?? null
+        const year = show.year ?? anilistMatch?.year ?? tmdbMatch?.year ?? null
+        const tmdbId = show.tmdbId ?? tmdbMatch?.id ?? null
+        const anilistId = show.anilistId ?? anilistMatch?.id ?? null
+
+        await db.update(shows).set({
+          canonicalTitle: newCanonicalTitle,
+          titleNormalized: newCanonicalTitle.toLowerCase().replace(/[^\w\s]/g, ''),
+          description: newDescription,
+          coverUrl,
+          genres,
+          year,
+          kind: finalKind,
+          titles: mergedTitles,
+          descriptions: mergedDescriptions,
+          tmdbId,
+          anilistId,
+          rating: rating !== null && rating !== undefined ? rating.toFixed(1) : show.rating,
+          enrichedAt: new Date(),
+          enrichmentAttempts: (show.enrichmentAttempts ?? 0) + 1,
+        }).where(eq(shows.id, showId))
+      } else {
         await db.update(shows)
           .set({ enrichmentAttempts: (show.enrichmentAttempts ?? 0) + 1 })
           .where(eq(shows.id, showId))
-      } else if (seasonTrees.length > 0) {
-        // providerKey=null: enrichment-sourced episodes have no streaming-provider
-        // external id. Existing episodes are preserved by ON CONFLICT DO NOTHING.
+      }
+
+      if (matched && seasonTrees.length > 0) {
         await upsertShowCatalog(db, showId, null, seasonTrees)
         await refreshLatestAirDate(db, showId)
-        // Fan out a state recompute for every user that has this show in their
-        // library so a newly-discovered season flips `watched` → `new_content`.
         const libraryRows = await db
           .select({ userId: userShowState.userId })
           .from(userShowState)
@@ -149,7 +210,10 @@ export function createEnrichmentWorker(db: DbClient, redis: Redis, tmdbApiKey: s
         }
       }
 
-      logger.info({ showId, matched, seasons: seasonTrees.length }, matched ? `enriched ${showId}` : `no match for ${showId}`)
+      logger.info(
+        { showId, matched, kind: finalKind, seasons: seasonTrees.length },
+        matched ? `enriched ${showId}` : `no match for ${showId}`,
+      )
     },
     { connection: redis, concurrency: 3 },
   )

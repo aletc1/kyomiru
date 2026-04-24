@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 import { eq, and, inArray, sql } from 'drizzle-orm'
-import { shows, userShowState, seasons, episodes, userEpisodeProgress } from '@kyomiru/db/schema'
+import { shows, userShowState, seasons, episodes, userEpisodeProgress, users } from '@kyomiru/db/schema'
 import { PatchShowBodySchema, PatchEpisodeBodySchema } from '@kyomiru/shared/contracts/shows'
 import { recomputeUserShowState } from '../services/stateMachine.js'
 import { enqueueEnrichment } from '../workers/enrichmentWorker.js'
 import { loadShowProviderLinks, loadEpisodeProviderLinks } from '../services/providerLinks.js'
+import { pickLocalized, resolveRequestLocales } from '../util/locale.js'
 
 export async function showsRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>(
@@ -21,6 +22,15 @@ export async function showsRoutes(app: FastifyInstance) {
         await enqueueEnrichment(app.enrichmentQueue, id)
         req.log.info({ showId: id }, 'Enqueued enrichment from shows.get (unenriched)')
       }
+
+      const [userRow] = await app.db
+        .select({ preferredLocale: users.preferredLocale })
+        .from(users)
+        .where(eq(users.id, userId))
+      const locales = resolveRequestLocales(
+        req.headers['accept-language'] as string | undefined,
+        userRow?.preferredLocale,
+      )
 
       const [state] = await app.db
         .select()
@@ -70,7 +80,7 @@ export async function showsRoutes(app: FastifyInstance) {
         return {
           id: s.id,
           seasonNumber: s.seasonNumber,
-          title: s.title,
+          title: pickLocalized(s.titles as Record<string, string>, locales, s.title),
           airDate: s.airDate?.toString() ?? null,
           episodeCount: eps.length,
           watchedCount,
@@ -79,7 +89,7 @@ export async function showsRoutes(app: FastifyInstance) {
             return {
               id: e.id,
               episodeNumber: e.episodeNumber,
-              title: e.title,
+              title: pickLocalized(e.titles as Record<string, string>, locales, e.title),
               durationSeconds: e.durationSeconds,
               airDate: e.airDate?.toString() ?? null,
               watched: p?.watched ?? false,
@@ -91,17 +101,22 @@ export async function showsRoutes(app: FastifyInstance) {
         }
       })
 
+      const showTitles = show.titles as Record<string, string>
+      const showDescriptions = show.descriptions as Record<string, string>
+
       reply.send({
         id: show.id,
-        canonicalTitle: show.canonicalTitle,
-        description: show.description,
+        canonicalTitle: pickLocalized(showTitles, locales, show.canonicalTitle),
+        description: pickLocalized(showDescriptions, locales, show.description),
         coverUrl: show.coverUrl,
         year: show.year,
-        kind: show.kind,
+        kind: state?.kindOverride ?? show.kind,
+        kindOverride: state?.kindOverride ?? null,
         genres: show.genres,
         latestAirDate: show.latestAirDate?.toString() ?? null,
         status: state?.status ?? null,
         rating: state?.rating ?? null,
+        communityRating: show.rating !== null ? Number(show.rating) : null,
         favoritedAt: state?.favoritedAt?.toISOString() ?? null,
         queuePosition: state?.queuePosition ?? null,
         totalEpisodes: state?.totalEpisodes ?? 0,
@@ -140,6 +155,8 @@ export async function showsRoutes(app: FastifyInstance) {
         updates.status = existing.prevStatus ?? 'in_progress'
         updates.prevStatus = null
       }
+
+      if ('kindOverride' in body) updates.kindOverride = body.kindOverride ?? null
 
       if (body.favorited === true && !existing.favoritedAt) {
         const maxQueuePos = await app.db

@@ -17,6 +17,8 @@ export interface ProviderCursor {
 export interface EpisodeTree {
   number: number
   title?: string
+  titles?: Record<string, string>
+  descriptions?: Record<string, string>
   durationSeconds?: number
   airDate?: string
   externalId: string
@@ -25,6 +27,7 @@ export interface EpisodeTree {
 export interface SeasonTree {
   number: number
   title?: string
+  titles?: Record<string, string>
   airDate?: string
   episodes: EpisodeTree[]
 }

@@ -42,6 +42,8 @@ export const ShowListItemSchema = z.object({
   latestAirDate: z.string().nullable(),
   status: ShowStatusSchema,
   rating: z.number().int().min(1).max(5).nullable(),
+  /** Community rating on a 0-10 scale (from TMDB / AniList); null when no external source rated it yet. */
+  communityRating: z.number().nullable(),
   favoritedAt: z.string().nullable(),
   queuePosition: z.number().int().nullable(),
   totalEpisodes: z.number().int(),
@@ -52,6 +54,7 @@ export const ShowListItemSchema = z.object({
 
 export const ShowDetailSchema = ShowListItemSchema.extend({
   description: z.string().nullable(),
+  kindOverride: ShowKindSchema.nullable(),
   seasons: z.array(SeasonDetailSchema),
 })
 
@@ -59,6 +62,7 @@ export const PatchShowBodySchema = z.object({
   rating: z.number().int().min(1).max(5).nullable().optional(),
   status: z.enum(['removed', 'restore']).optional(),
   favorited: z.boolean().optional(),
+  kindOverride: ShowKindSchema.nullable().optional(),
 }).strict()
 
 export const PatchEpisodeBodySchema = z.object({

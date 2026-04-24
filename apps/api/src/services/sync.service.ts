@@ -44,16 +44,19 @@ export async function upsertShowCatalog(
   }
 
   for (const s of seasonTrees) {
+    const seasonTitles = s.titles ?? (s.title ? { en: s.title } : {})
     const [season] = await db.insert(seasons).values({
       showId,
       seasonNumber: s.number,
       title: s.title ?? null,
       airDate: s.airDate ?? null,
       episodeCount: s.episodes.length,
+      titles: seasonTitles,
     }).onConflictDoUpdate({
       target: [seasons.showId, seasons.seasonNumber],
       set: {
         episodeCount: sql`GREATEST(${seasons.episodeCount}, EXCLUDED.episode_count)`,
+        titles: sql`${seasons.titles} || EXCLUDED.titles`,
       },
     }).returning({ id: seasons.id })
 
@@ -70,17 +73,23 @@ export async function upsertShowCatalog(
       // catalog) while letting enrichment fill gaps on rows created earlier
       // without that data (e.g. Netflix history-fallback shows get real
       // titles / air dates once TMDb enrichment runs).
+      const epTitles = e.titles ?? (e.title ? { en: e.title } : {})
+      const epDescriptions = e.descriptions ?? {}
       const [ep] = await db.insert(episodes).values({
         seasonId,
         showId,
         episodeNumber: e.number,
         title: e.title ?? null,
+        titles: epTitles,
+        descriptions: epDescriptions,
         durationSeconds: e.durationSeconds ?? null,
         airDate: e.airDate ?? null,
       }).onConflictDoUpdate({
         target: [episodes.seasonId, episodes.episodeNumber],
         set: {
           title: sql`COALESCE(${episodes.title}, EXCLUDED.title)`,
+          titles: sql`${episodes.titles} || EXCLUDED.titles`,
+          descriptions: sql`${episodes.descriptions} || EXCLUDED.descriptions`,
           durationSeconds: sql`COALESCE(${episodes.durationSeconds}, EXCLUDED.duration_seconds)`,
           airDate: sql`COALESCE(${episodes.airDate}, EXCLUDED.air_date)`,
         },
@@ -447,6 +456,8 @@ async function resolveEpisode(
       description: tree.description ?? null,
       coverUrl: tree.coverUrl ?? null,
       kind: (tree.kind ?? 'anime') as 'anime' | 'tv' | 'movie',
+      titles: { en: tree.title },
+      descriptions: tree.description ? { en: tree.description } : {},
     }).onConflictDoNothing().returning({ id: shows.id })
 
     if (!newShow) {
