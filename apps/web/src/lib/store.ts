@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware'
 import type { ShowKind } from '@kyomiru/shared'
 
 export const LIBRARY_STATUS_VALUES = ['in_progress', 'new_content', 'watched', 'removed'] as const
-export const LIBRARY_SORT_VALUES = ['recent_activity', 'title_asc', 'rating', 'updated_date'] as const
+export const LIBRARY_SORT_VALUES = ['recent_activity', 'title_asc', 'rating', 'last_watched', 'latest_air_date'] as const
 export const LIBRARY_KIND_VALUES = ['anime', 'tv', 'movie'] as const
 
 export type LibraryStatus = typeof LIBRARY_STATUS_VALUES[number] | undefined
@@ -52,6 +52,13 @@ export const useAppStore = create<AppStore>()(
         libraryKind: s.libraryKind,
         libraryProvider: s.libraryProvider,
       }),
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<AppStore>
+        const safeSort = LIBRARY_SORT_VALUES.includes(p.librarySort as LibrarySort)
+          ? p.librarySort
+          : DEFAULT_LIBRARY_SORT
+        return { ...current, ...p, librarySort: safeSort as LibrarySort }
+      },
     },
   ),
 )

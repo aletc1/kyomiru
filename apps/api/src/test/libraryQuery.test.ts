@@ -31,6 +31,12 @@ describe('LibraryQuerySchema', () => {
     expect(() => LibraryQuerySchema.parse({ status: 'paused' })).toThrow()
   })
 
+  it('accepts last_watched and latest_air_date sort values', () => {
+    expect(LibraryQuerySchema.parse({ sort: 'last_watched' }).sort).toBe('last_watched')
+    expect(LibraryQuerySchema.parse({ sort: 'latest_air_date' }).sort).toBe('latest_air_date')
+    expect(() => LibraryQuerySchema.parse({ sort: 'updated_date' })).toThrow()
+  })
+
   it('accepts free-form provider strings', () => {
     // Provider is validated at the data layer (EXISTS subquery returns nothing
     // for unknown keys); the schema only enforces that it is a string.

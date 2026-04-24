@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { isSeriesFresh, classifyShowIds } from './sync.js'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { isSeriesFresh, classifyShowIds, pingKyomiru, KyomiruAuthError } from './sync.js'
 import type { CheckpointItem } from './providers/types.js'
 
 function makeItem(seasonNumber: number, episodeNumber: number): CheckpointItem {
@@ -88,5 +88,37 @@ describe('classifyShowIds', () => {
     expect(slowIds).toContain('b')
     expect(slowIds).toContain('c')
     expect(slowIds).toHaveLength(2)
+  })
+})
+
+describe('pingKyomiru', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it('throws KyomiruAuthError on HTTP 401', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response('Invalid or revoked token', { status: 401 }),
+    ))
+    await expect(pingKyomiru('http://localhost:3000', 'bad-token'))
+      .rejects.toBeInstanceOf(KyomiruAuthError)
+  })
+
+  it('throws a generic Error on non-401 failures', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response('boom', { status: 500 }),
+    ))
+    await expect(pingKyomiru('http://localhost:3000', 'x'))
+      .rejects.toThrow(/HTTP 500/)
+  })
+
+  it('returns the user payload on 200', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: '1', email: 'a@b', displayName: 'A' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ))
+    await expect(pingKyomiru('http://localhost:3000', 'ok')).resolves.toEqual({
+      id: '1', email: 'a@b', displayName: 'A',
+    })
   })
 })

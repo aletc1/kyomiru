@@ -18,9 +18,9 @@ import { Badge } from '@/components/ui/badge'
 
 const searchSchema = z.object({
   q: z.string().optional(),
-  status: z.enum(LIBRARY_STATUS_VALUES).optional(),
-  sort: z.enum(LIBRARY_SORT_VALUES).optional(),
-  kind: z.enum(LIBRARY_KIND_VALUES).optional(),
+  status: z.enum(LIBRARY_STATUS_VALUES).optional().catch(undefined),
+  sort: z.enum(LIBRARY_SORT_VALUES).optional().catch(undefined),
+  kind: z.enum(LIBRARY_KIND_VALUES).optional().catch(undefined),
   provider: z.string().optional(),
 })
 
@@ -156,14 +156,15 @@ function LibraryPage() {
           {viewMode === 'grid' ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
         </Button>
         <Select value={sort} onValueChange={handleSortChange}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-48">
             <SelectValue placeholder="Sort by" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="recent_activity">Recent Activity</SelectItem>
             <SelectItem value="title_asc">Title A-Z</SelectItem>
             <SelectItem value="rating">Rating</SelectItem>
-            <SelectItem value="updated_date">Updated Date</SelectItem>
+            <SelectItem value="last_watched">Recently Watched</SelectItem>
+            <SelectItem value="latest_air_date">Latest Air Date</SelectItem>
           </SelectContent>
         </Select>
         {showKindFilter && (

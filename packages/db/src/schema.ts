@@ -189,8 +189,10 @@ export const syncRuns = pgTable('sync_runs', {
   cursorBefore: jsonb('cursor_before'),
   cursorAfter: jsonb('cursor_after'),
   errors: jsonb('errors'),
+  extensionTokenId: uuid('extension_token_id').references(() => extensionTokens.id, { onDelete: 'set null' }),
 }, (t) => [
   index('sync_runs_user_time_idx').on(t.userId, t.startedAt),
+  index('sync_runs_token_idx').on(t.extensionTokenId),
 ])
 
 // ─── User: content hash fallback delta ───────────────────────────────────────
