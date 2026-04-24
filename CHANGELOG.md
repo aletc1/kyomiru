@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.1.2...kyomiru-v1.2.0) (2026-04-24)
+
+
+### Features
+
+* invite-only signup gate (DISABLE_AUTO_SIGNUP) + logo refresh ([#22](https://github.com/aletc1/kyomiru/issues/22)) ([d36e28c](https://github.com/aletc1/kyomiru/commit/d36e28c68392e38b98bcedd04c7f703cd8ee3b45))
+* multi-language metadata + anime reclassification + TMDB community rating ([#24](https://github.com/aletc1/kyomiru/issues/24)) ([247e95e](https://github.com/aletc1/kyomiru/commit/247e95e148b7b3821ba13b3d9c15ee6830b665e9))
+
 ## [1.1.2](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.1.1...kyomiru-v1.1.2) (2026-04-24)
 
 
