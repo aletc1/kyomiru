@@ -15,7 +15,10 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/landing/node_modules ./apps/landing/node_modules
 COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
 COPY . .
-RUN pnpm --filter @kyomiru/landing build
+# Vite's production build resolves @kyomiru/shared via the "default" exports
+# condition (./dist/index.js), not the "development" one — so shared must be
+# compiled first.
+RUN pnpm --filter @kyomiru/shared build && pnpm --filter @kyomiru/landing build
 
 FROM nginx:alpine AS runtime
 COPY --from=build /app/apps/landing/dist /usr/share/nginx/html

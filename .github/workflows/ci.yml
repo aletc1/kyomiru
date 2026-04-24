@@ -54,11 +54,43 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build images
-        run: |
-          docker build -f infra/docker/api.Dockerfile -t kyomiru/api:ci .
-          docker build -f infra/docker/web.Dockerfile -t kyomiru/web:ci .
-          docker build -f infra/docker/migrate.Dockerfile -t kyomiru/migrate:ci .
+      - uses: docker/setup-buildx-action@v3
+      - name: Build api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/api.Dockerfile
+          load: true
+          tags: kyomiru/api:ci
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/web.Dockerfile
+          load: true
+          tags: kyomiru/web:ci
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+      - name: Build migrate image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/migrate.Dockerfile
+          load: true
+          tags: kyomiru/migrate:ci
+          cache-from: type=gha,scope=migrate
+          cache-to: type=gha,scope=migrate,mode=max
+      - name: Build landing image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/landing.Dockerfile
+          load: true
+          tags: kyomiru/landing:ci
+          cache-from: type=gha,scope=landing
+          cache-to: type=gha,scope=landing,mode=max
       - name: Bring up stack
         env:
           KYOMIRU_VERSION: ci
