@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.1.0...kyomiru-v1.1.1) (2026-04-24)
+
+
+### Bug Fixes
+
+* **infra:** ci smoke test ([#19](https://github.com/aletc1/kyomiru/issues/19)) ([2819732](https://github.com/aletc1/kyomiru/commit/2819732d26a86ec9031dc125d00eb1fdb592cf76))
+* **infra:** make api & web docker images runnable ([#17](https://github.com/aletc1/kyomiru/issues/17)) ([5db2c4e](https://github.com/aletc1/kyomiru/commit/5db2c4e225512c26bac3f7bcf06e60850bb0a532))
+
 ## [1.1.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.0.0...kyomiru-v1.1.0) (2026-04-24)
 
 
