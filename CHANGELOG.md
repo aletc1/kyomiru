@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.0.0...kyomiru-v1.1.0) (2026-04-24)
+
+
+### Features
+
+* **infra:** add Helm chart for Kubernetes deployment ([#15](https://github.com/aletc1/kyomiru/issues/15)) ([2790858](https://github.com/aletc1/kyomiru/commit/2790858894444b4302e920ce7f7cb1a8d109990a))
+
 ## [1.0.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v0.2.0...kyomiru-v1.0.0) (2026-04-24)
 
 
