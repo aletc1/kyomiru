@@ -16,6 +16,8 @@ const EnvSchema = z.object({
   PROVIDERS_FIXTURE: z.string().optional(),
   SENTRY_DSN: z.string().optional(),
   MOCK_GOOGLE_AUTH_USER: z.string().email().optional(),
+  DISABLE_AUTO_SIGNUP: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  AUTO_SIGNUP_EMAIL_PATTERN: z.string().trim().optional(),
 }).refine(
   (env) => !!env.MOCK_GOOGLE_AUTH_USER || (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.OIDC_REDIRECT_URL),
   { message: 'GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and OIDC_REDIRECT_URL are required unless MOCK_GOOGLE_AUTH_USER is set' },

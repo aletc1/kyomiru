@@ -2,8 +2,9 @@ import fp from 'fastify-plugin'
 import * as client from 'openid-client'
 import { createHash } from 'node:crypto'
 import { and, eq, isNull } from 'drizzle-orm'
-import { extensionTokens } from '@kyomiru/db/schema'
+import { extensionTokens, users } from '@kyomiru/db/schema'
 import type { FastifyRequest, FastifyReply } from 'fastify'
+import { isEmailApproved } from '../services/authGate.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -21,6 +22,7 @@ declare module '@fastify/secure-session' {
   interface SessionData {
     userId: string
     sessionId: string
+    email: string
   }
 }
 
@@ -44,7 +46,30 @@ export const authPlugin = fp(async (app) => {
   const requireAuth = async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = req.session.get('userId')
     if (!userId) {
-      reply.status(401).send({ error: 'Unauthorized' })
+      return reply.status(401).send({ error: 'Unauthorized' })
+    }
+
+    // Fast path: session created after this feature shipped carries the email.
+    // Grandfathered sessions (pre-feature) have no email field, so fall back to
+    // a DB lookup. Closes the bypass for the 30-day-TTL cookie window.
+    let email = req.session.get('email')
+    if (!email) {
+      const [user] = await app.db
+        .select({ email: users.email })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+      if (!user) {
+        req.session.delete()
+        return reply.status(401).send({ error: 'Unauthorized' })
+      }
+      email = user.email
+      req.session.set('email', email)
+    }
+
+    if (!(await isEmailApproved(app, email))) {
+      req.session.delete()
+      return reply.status(403).send({ error: 'not_approved' })
     }
   }
   app.decorate('requireAuth', requireAuth)
@@ -59,12 +84,21 @@ export const authPlugin = fp(async (app) => {
 
     const hash = hashExtensionToken(raw)
     const [row] = await app.db
-      .select({ id: extensionTokens.id, userId: extensionTokens.userId })
+      .select({
+        id: extensionTokens.id,
+        userId: extensionTokens.userId,
+        email: users.email,
+      })
       .from(extensionTokens)
+      .innerJoin(users, eq(extensionTokens.userId, users.id))
       .where(and(eq(extensionTokens.tokenHash, hash), isNull(extensionTokens.revokedAt)))
       .limit(1)
 
     if (!row) return reply.status(401).send({ error: 'Invalid or revoked token' })
+
+    if (!(await isEmailApproved(app, row.email))) {
+      return reply.status(403).send({ error: 'not_approved' })
+    }
 
     req.extensionUserId = row.userId
     req.extensionTokenId = row.id
