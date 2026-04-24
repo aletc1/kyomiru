@@ -1,6 +1,9 @@
 import {
   getConfig,
   setConfig,
+  clearConfig,
+  getAuthError,
+  setAuthError,
   getCheckpoint,
   getLastSync,
   getSyncState,
@@ -8,7 +11,7 @@ import {
   type ExtensionConfig,
   type SyncState,
 } from './storage.js'
-import { pingKyomiru } from './sync.js'
+import { pingKyomiru, KyomiruAuthError } from './sync.js'
 import { allAdapters, adapterForTab } from './providers/index.js'
 import type { ProviderAdapter, SessionStatus } from './providers/types.js'
 
@@ -256,6 +259,12 @@ async function renderSetup(prefill?: ExtensionConfig): Promise<void> {
   urlInput.value = prefill?.kyomiruUrl ?? ''
   tokenInput.value = prefill?.token ?? ''
   $('setup-log').textContent = ''
+  const wasRevoked = await getAuthError()
+  if (wasRevoked) {
+    show($('revoked-banner'))
+  } else {
+    hide($('revoked-banner'))
+  }
 }
 
 async function handleSave(): Promise<void> {
@@ -302,6 +311,7 @@ async function handleSave(): Promise<void> {
     const me = await pingKyomiru(rawUrl, token)
     appendLog(log, `Connected as ${me.displayName} (${me.email})`)
     await setConfig({ kyomiruUrl: rawUrl, token, userEmail: me.email })
+    await setAuthError(false)
     await buildProviderCards()
     await renderMain()
   } catch (err) {
@@ -354,8 +364,13 @@ async function verifySavedConfig(cfg: ExtensionConfig): Promise<void> {
     const me = await pingKyomiru(cfg.kyomiruUrl, cfg.token)
     await setConfig({ kyomiruUrl: cfg.kyomiruUrl, token: cfg.token, userEmail: me.email })
     await renderMain()
-  } catch {
-    // Leave config unverified; the user can click Settings to retry.
+  } catch (err) {
+    if (err instanceof KyomiruAuthError) {
+      await clearConfig()
+      await setAuthError(true)
+      await renderSetup()
+    }
+    // Otherwise leave config unverified; user can click Settings to retry.
   }
 }
 

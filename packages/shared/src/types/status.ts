@@ -4,6 +4,10 @@ export type ShowStatus = (typeof SHOW_STATUSES)[number]
 export const PROVIDER_KEYS = ['netflix', 'prime', 'crunchyroll'] as const
 export type ProviderKey = (typeof PROVIDER_KEYS)[number]
 
+/** Providers whose watch history is synced via the Chrome extension (not a server-side bearer token). */
+export const EXTENSION_PROVIDER_KEYS = ['crunchyroll', 'netflix'] as const
+export type ExtensionProviderKey = (typeof EXTENSION_PROVIDER_KEYS)[number]
+
 export const SYNC_TRIGGERS = ['manual', 'cron'] as const
 export type SyncTrigger = (typeof SYNC_TRIGGERS)[number]
 

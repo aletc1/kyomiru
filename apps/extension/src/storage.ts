@@ -85,6 +85,21 @@ export async function clearConfig(): Promise<void> {
   await chrome.storage.local.remove(STORAGE_KEYS.config)
 }
 
+// ─── Auth error flag (persists across config clear so popup can show banner) ──
+
+export async function getAuthError(): Promise<boolean> {
+  const r = await chrome.storage.local.get('authError')
+  return (r['authError'] as boolean | undefined) ?? false
+}
+
+export async function setAuthError(v: boolean): Promise<void> {
+  if (v) {
+    await chrome.storage.local.set({ authError: true })
+  } else {
+    await chrome.storage.local.remove('authError')
+  }
+}
+
 // ─── Per-provider session ─────────────────────────────────────────────────────
 
 export async function getSession<T>(providerKey: string): Promise<T | null> {

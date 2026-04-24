@@ -2,12 +2,14 @@
 
 import {
   clearSession,
+  clearConfig,
+  setAuthError,
   getConfig,
   getSyncState,
   setSyncState,
   type SyncState,
 } from './storage.js'
-import { runSync, type SyncEvent } from './sync.js'
+import { runSync, KyomiruAuthError, type SyncEvent } from './sync.js'
 import { allAdapters } from './providers/index.js'
 import { CrunchyrollAuthError } from './providers/crunchyroll.js'
 import { NetflixAuthError } from './providers/netflix.js'
@@ -109,6 +111,10 @@ async function startSync(providerKey: string): Promise<void> {
     await writeChain
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
+    if (err instanceof KyomiruAuthError) {
+      await clearConfig()
+      await setAuthError(true)
+    }
     if (err instanceof CrunchyrollAuthError) await clearSession('crunchyroll')
     if (err instanceof NetflixAuthError) await clearSession('netflix')
     state = { status: 'error', startedAt, finishedAt: Date.now(), log, error: message }

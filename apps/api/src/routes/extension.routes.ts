@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { randomBytes } from 'node:crypto'
-import { eq, and, isNull, desc, count } from 'drizzle-orm'
-import { extensionTokens, users } from '@kyomiru/db/schema'
+import { eq, and, isNull, desc, count, max, inArray } from 'drizzle-orm'
+import { extensionTokens, users, syncRuns } from '@kyomiru/db/schema'
 import { CreateExtensionTokenBodySchema } from '@kyomiru/shared/contracts/ingest'
 import { hashExtensionToken } from '../plugins/auth.js'
 
@@ -38,11 +38,37 @@ export async function extensionRoutes(app: FastifyInstance) {
       .where(and(eq(extensionTokens.userId, userId), isNull(extensionTokens.revokedAt)))
       .orderBy(desc(extensionTokens.createdAt))
 
+    const tokenIds = rows.map((r) => r.id)
+    const syncsByToken = new Map<string, Record<string, string>>()
+
+    if (tokenIds.length > 0) {
+      const syncs = await app.db
+        .select({
+          extensionTokenId: syncRuns.extensionTokenId,
+          providerKey: syncRuns.providerKey,
+          lastSyncAt: max(syncRuns.finishedAt),
+        })
+        .from(syncRuns)
+        .where(and(
+          inArray(syncRuns.extensionTokenId, tokenIds),
+          eq(syncRuns.status, 'success'),
+        ))
+        .groupBy(syncRuns.extensionTokenId, syncRuns.providerKey)
+
+      for (const s of syncs) {
+        if (!s.extensionTokenId || !s.lastSyncAt) continue
+        const map = syncsByToken.get(s.extensionTokenId) ?? {}
+        map[s.providerKey] = s.lastSyncAt.toISOString()
+        syncsByToken.set(s.extensionTokenId, map)
+      }
+    }
+
     reply.send(rows.map((r) => ({
       id: r.id,
       label: r.label,
       createdAt: r.createdAt.toISOString(),
       lastUsedAt: r.lastUsedAt?.toISOString() ?? null,
+      syncsByProvider: syncsByToken.get(r.id) ?? {},
     })))
   })
 

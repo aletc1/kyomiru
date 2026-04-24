@@ -11,6 +11,7 @@ export const ServiceInfoSchema = z.object({
   lastSyncAt: z.string().nullable(),
   lastTestedAt: z.string().nullable(),
   lastError: z.string().nullable(),
+  pairingState: z.enum(['none', 'pending']).optional(),
 })
 
 export const ConnectServiceBodySchema = z.object({
@@ -27,6 +28,7 @@ export const TestServiceResponseSchema = z.object({
 })
 
 export type ServiceInfo = z.infer<typeof ServiceInfoSchema>
+export type PairingState = NonNullable<ServiceInfo['pairingState']>
 export type ConnectServiceBody = z.infer<typeof ConnectServiceBodySchema>
 export type TestServiceBody = z.infer<typeof TestServiceBodySchema>
 export type TestServiceResponse = z.infer<typeof TestServiceResponseSchema>
