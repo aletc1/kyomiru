@@ -5,8 +5,8 @@ import { Search, LayoutGrid, List } from 'lucide-react'
 import { useState, useCallback, useEffect } from 'react'
 import { api } from '@/lib/api'
 import { Q } from '@/lib/queryKeys'
-import { useAppStore, LIBRARY_STATUS_VALUES, LIBRARY_SORT_VALUES, DEFAULT_LIBRARY_SORT } from '@/lib/store'
-import type { LibraryResponse } from '@kyomiru/shared/contracts/library'
+import { useAppStore, LIBRARY_STATUS_VALUES, LIBRARY_SORT_VALUES, LIBRARY_KIND_VALUES, DEFAULT_LIBRARY_SORT } from '@/lib/store'
+import type { LibraryResponse, LibraryFacets } from '@kyomiru/shared/contracts/library'
 import type { NewContentCount } from '@kyomiru/shared/contracts/auth'
 import { ShowCard } from '@/components/ShowCard'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,8 @@ const searchSchema = z.object({
   q: z.string().optional(),
   status: z.enum(LIBRARY_STATUS_VALUES).optional(),
   sort: z.enum(LIBRARY_SORT_VALUES).optional(),
+  kind: z.enum(LIBRARY_KIND_VALUES).optional(),
+  provider: z.string().optional(),
 })
 
 export const Route = createFileRoute('/library')({
@@ -30,20 +32,28 @@ export const Route = createFileRoute('/library')({
 function LibraryPage() {
   const search = Route.useSearch()
   const navigate = useNavigate({ from: '/library' })
-  const { viewMode, setViewMode, libraryStatus, librarySort, setLibraryStatus, setLibrarySort } = useAppStore()
+  const {
+    viewMode, setViewMode,
+    libraryStatus, librarySort, libraryKind, libraryProvider,
+    setLibraryStatus, setLibrarySort, setLibraryKind, setLibraryProvider,
+  } = useAppStore()
   const [searchInput, setSearchInput] = useState(search.q ?? '')
 
   const status = search.status ?? libraryStatus
   const sort = search.sort ?? librarySort
+  const kind = search.kind ?? libraryKind
+  const provider = search.provider ?? libraryProvider
   const q = search.q
 
-  // On mount, hydrate missing URL params from the store so the URL stays a
-  // canonical reflection of the active filter/sort (each param independently).
+  // Hydrate missing URL params from store so the URL stays a canonical
+  // reflection of active filters (each param independently).
   useEffect(() => {
-    const patch: { status?: typeof libraryStatus; sort?: typeof librarySort } = {}
+    const patch: Record<string, string | undefined> = {}
     if (search.status === undefined && libraryStatus !== undefined) patch.status = libraryStatus
     if (search.sort === undefined && librarySort !== DEFAULT_LIBRARY_SORT) patch.sort = librarySort
-    if (patch.status !== undefined || patch.sort !== undefined) {
+    if (search.kind === undefined && libraryKind !== undefined) patch.kind = libraryKind
+    if (search.provider === undefined && libraryProvider !== undefined) patch.provider = libraryProvider
+    if (Object.keys(patch).length > 0) {
       navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -54,13 +64,21 @@ function LibraryPage() {
     queryFn: () => api.get<NewContentCount>('/new-content-count'),
   })
 
+  const { data: facetsData } = useQuery<LibraryFacets>({
+    queryKey: Q.libraryFacets,
+    queryFn: () => api.get<LibraryFacets>('/library/facets'),
+    staleTime: 60_000,
+  })
+
   const { data, isLoading, fetchNextPage, hasNextPage } = useInfiniteQuery<LibraryResponse>({
-    queryKey: Q.library({ q, status, sort }),
+    queryKey: Q.library({ q, status, sort, kind, provider }),
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams()
       if (q) params.set('q', q)
       if (status) params.set('status', status)
       params.set('sort', sort)
+      if (kind) params.set('kind', kind)
+      if (provider) params.set('provider', provider)
       if (pageParam) params.set('cursor', pageParam as string)
       return api.get<LibraryResponse>(`/library?${params}`)
     },
@@ -87,6 +105,34 @@ function LibraryPage() {
     setLibrarySort(next)
     navigate({ search: (prev) => ({ ...prev, sort: next }) })
   }, [navigate, setLibrarySort])
+
+  const handleKindChange = useCallback((v: string) => {
+    const next = v === 'all' ? undefined : v as typeof kind
+    setLibraryKind(next)
+    navigate({ search: (prev) => ({ ...prev, kind: next }) })
+  }, [navigate, setLibraryKind])
+
+  const handleProviderChange = useCallback((v: string) => {
+    const next = v === 'all' ? undefined : v
+    setLibraryProvider(next)
+    navigate({ search: (prev) => ({ ...prev, provider: next }) })
+  }, [navigate, setLibraryProvider])
+
+  const facetProviders = facetsData?.providers ?? []
+  const facetKinds = facetsData?.kinds ?? []
+
+  // Show the dropdowns whenever the user has multiple options OR an active
+  // filter that isn't in the facets list — otherwise a stale persisted value
+  // (e.g. provider=netflix after disconnecting Netflix) would hide the only
+  // control that could clear it.
+  const showKindFilter = facetKinds.length > 1 || (kind !== undefined && !facetKinds.includes(kind))
+  const kindOptions = facetKinds.includes(kind as never) || kind === undefined
+    ? facetKinds
+    : [...facetKinds, kind]
+  const showProviderFilter = facetProviders.length > 1 || (provider !== undefined && !facetProviders.some((p) => p.key === provider))
+  const providerOptions = provider === undefined || facetProviders.some((p) => p.key === provider)
+    ? facetProviders
+    : [...facetProviders, { key: provider, displayName: provider }]
 
   return (
     <div className="space-y-4">
@@ -120,6 +166,34 @@ function LibraryPage() {
             <SelectItem value="updated_date">Updated Date</SelectItem>
           </SelectContent>
         </Select>
+        {showKindFilter && (
+          <Select value={kind ?? 'all'} onValueChange={handleKindChange}>
+            <SelectTrigger className="w-32">
+              <SelectValue placeholder="Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All types</SelectItem>
+              {kindOptions.map((k) => (
+                <SelectItem key={k} value={k}>
+                  {k === 'anime' ? 'Anime' : k === 'tv' ? 'TV' : 'Movie'}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {showProviderFilter && (
+          <Select value={provider ?? 'all'} onValueChange={handleProviderChange}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="Provider" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All providers</SelectItem>
+              {providerOptions.map((p) => (
+                <SelectItem key={p.key} value={p.key}>{p.displayName}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {/* Tabs */}

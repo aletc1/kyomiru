@@ -1,5 +1,7 @@
 {
   "setup-worktree": [
-    "pnpm install"
+    "pnpm install",
+    "cp -n .env.example .env",
+    "sed -i.bak \"s|^MOCK_GOOGLE_AUTH_USER=.*|MOCK_GOOGLE_AUTH_USER=$(git config user.email)|\" .env && rm -f .env.bak"
   ]
 }
