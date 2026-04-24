@@ -65,6 +65,7 @@ export const CHECKPOINT_MAX_AGE_MS = 24 * 60 * 60 * 1000
 export const STORAGE_KEYS = {
   config: 'config',
   session: (providerKey: string) => `capturedSession:${providerKey}`,
+  profileId: (providerKey: string) => `storedProfileId:${providerKey}`,
   lastSync: (providerKey: string) => `lastSync:${providerKey}`,
   syncState: (providerKey: string) => `syncState:${providerKey}`,
   checkpoint: (providerKey: string) => `syncCheckpoint:${providerKey}`,
@@ -99,6 +100,20 @@ export async function setSession<T>(providerKey: string, data: T): Promise<void>
 
 export async function clearSession(providerKey: string): Promise<void> {
   await chrome.storage.session.remove(STORAGE_KEYS.session(providerKey))
+}
+
+// ─── Durable profile ID ───────────────────────────────────────────────────────
+// Survives session clears so the webRequest capture path can recover without
+// needing a profile-scoped URL.
+
+export async function getStoredProfileId(providerKey: string): Promise<string | null> {
+  const key = STORAGE_KEYS.profileId(providerKey)
+  const r = await chrome.storage.local.get(key)
+  return (r[key] as string | undefined) ?? null
+}
+
+export async function setStoredProfileId(providerKey: string, id: string): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEYS.profileId(providerKey)]: id })
 }
 
 // ─── Last sync ────────────────────────────────────────────────────────────────

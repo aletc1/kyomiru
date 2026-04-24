@@ -167,7 +167,7 @@ function renderSessionStatus(
   if (status.kind === 'missing') {
     statusEl.textContent = `${adapter.displayName} session not captured`
     setDot(dotEl, 'err')
-    ctaTextEl.textContent = `Waiting for your ${adapter.displayName} session. Click below and browse any page — we’ll pick it up automatically.`
+    ctaTextEl.textContent = `Open ${adapter.displayName} in any tab — your session will be captured automatically.`
     openBtn.textContent = `Open ${adapter.displayName}`
     show(ctaEl)
     return
