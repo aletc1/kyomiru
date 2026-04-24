@@ -1,6 +1,7 @@
 import { createRootRouteWithContext, Outlet, redirect, useRouterState } from '@tanstack/react-router'
 import type { QueryClient } from '@tanstack/react-query'
 import { Sidebar } from '@/components/Sidebar'
+import { Logo } from '@/components/Logo'
 import { Menu } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
 import { Q } from '@/lib/queryKeys'
@@ -11,18 +12,22 @@ type Me = { id: string; email: string; displayName: string; avatarUrl: string | 
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   beforeLoad: async ({ context, location }) => {
-    if (location.pathname === '/login') return
+    if (location.pathname === '/login' || location.pathname === '/unauthorized') return
     try {
       await context.queryClient.ensureQueryData<Me>({
         queryKey: Q.me,
         queryFn: async () => {
           const res = await fetch('/api/me', { credentials: 'include' })
+          if (res.status === 403) throw new Error('not_approved')
           if (!res.ok) throw new Error('unauthenticated')
           return res.json() as Promise<Me>
         },
         staleTime: Infinity,
       })
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.message === 'not_approved') {
+        throw redirect({ to: '/unauthorized' })
+      }
       throw redirect({ to: '/login' })
     }
   },
@@ -32,7 +37,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 function RootLayout() {
   const { setSidebarOpen } = useAppStore()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  if (pathname === '/login') return <Outlet />
+  if (pathname === '/login' || pathname === '/unauthorized') return <Outlet />
   return (
     <div className="flex min-h-screen">
       <Sidebar />
@@ -42,7 +47,7 @@ function RootLayout() {
           <button onClick={() => setSidebarOpen(true)} aria-label="Open menu">
             <Menu className="h-5 w-5" />
           </button>
-          <span className="font-bold text-lg">Kyomiru</span>
+          <Logo size="sm" showWordmark />
         </header>
         <main className="flex-1 p-4 md:p-6">
           <Outlet />

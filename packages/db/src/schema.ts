@@ -216,6 +216,16 @@ export const contentHashes = pgTable('content_hashes', {
   { pk: { columns: [t.userId, t.providerKey, t.scope] } },
 ])
 
+// ─── Access control: pre-approved emails ─────────────────────────────────────
+// `email` is `citext` in the DB (see 0009_approved_emails.sql) for
+// case-insensitive lookup. Drizzle types it as `text` — do NOT run
+// drizzle-kit push against this table, it will try to revert it to text.
+export const approvedEmails = pgTable('approved_emails', {
+  email: text('email').primaryKey(),
+  note: text('note'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 // ─── User: Chrome extension API tokens ───────────────────────────────────────
 export const extensionTokens = pgTable('extension_tokens', {
   id: uuid('id').primaryKey().defaultRandom(),
