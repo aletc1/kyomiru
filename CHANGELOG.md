@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.2.0...kyomiru-v1.3.0) (2026-04-24)
+
+
+### Features
+
+* **landing:** marketing site at apps/landing + quay.io image ([#25](https://github.com/aletc1/kyomiru/issues/25)) ([904bfcb](https://github.com/aletc1/kyomiru/commit/904bfcbcb99d91fef1071cbeeaf614fa8887bbe2))
+
 ## [1.2.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.1.2...kyomiru-v1.2.0) (2026-04-24)
 
 
