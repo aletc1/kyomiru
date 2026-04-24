@@ -3,11 +3,22 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "main": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./contracts/*": "./src/contracts/*.ts",
-    "./types/*": "./src/types/*.ts"
+    ".": {
+      "types": "./src/index.ts",
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./contracts/*": {
+      "types": "./src/contracts/*.ts",
+      "development": "./src/contracts/*.ts",
+      "default": "./dist/contracts/*.js"
+    },
+    "./types/*": {
+      "types": "./src/types/*.ts",
+      "development": "./src/types/*.ts",
+      "default": "./dist/types/*.js"
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

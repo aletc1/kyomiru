@@ -30,6 +30,9 @@ spec:
         - name: web
           image: "{{ .Values.image.registry }}/{{ .Values.image.web.repository }}:{{ .Values.image.web.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: API_UPSTREAM
+              value: "{{ include "kyomiru.fullname" . }}-api:3000"
           ports:
             - name: http
               containerPort: 80

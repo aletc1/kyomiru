@@ -67,6 +67,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    environment:
+      API_UPSTREAM: api:3000
     ports:
       - '${KYOMIRU_PORT:-8080}:80'
 

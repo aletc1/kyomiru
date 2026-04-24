@@ -4,10 +4,26 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./types": "./src/types.ts",
-    "./enrichment/anilist": "./src/enrichment/anilist.ts",
-    "./enrichment/tmdb": "./src/enrichment/tmdb.ts"
+    ".": {
+      "types": "./src/index.ts",
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "development": "./src/types.ts",
+      "default": "./dist/types.js"
+    },
+    "./enrichment/anilist": {
+      "types": "./src/enrichment/anilist.ts",
+      "development": "./src/enrichment/anilist.ts",
+      "default": "./dist/enrichment/anilist.js"
+    },
+    "./enrichment/tmdb": {
+      "types": "./src/enrichment/tmdb.ts",
+      "development": "./src/enrichment/tmdb.ts",
+      "default": "./dist/enrichment/tmdb.js"
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

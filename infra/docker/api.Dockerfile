@@ -19,17 +19,17 @@ COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
 COPY --from=deps /app/packages/providers/node_modules ./packages/providers/node_modules
 COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
 COPY . .
-RUN pnpm --filter @kyomiru/shared build
-RUN pnpm --filter @kyomiru/db build
-RUN pnpm --filter @kyomiru/providers build
-RUN pnpm --filter @kyomiru/api build
+# `--legacy` is required on pnpm v10 because the workspace does not enable
+# `inject-workspace-packages`. Without it, `pnpm deploy` refuses to run.
+RUN pnpm --filter @kyomiru/shared build \
+ && pnpm --filter @kyomiru/db build \
+ && pnpm --filter @kyomiru/providers build \
+ && pnpm --filter @kyomiru/api build \
+ && pnpm --filter=@kyomiru/api deploy --prod --legacy /prod/api
 
 FROM node:20-slim AS runtime
-RUN npm install -g pnpm@10
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=build /app/apps/api/dist ./dist
-COPY --from=build /app/apps/api/package.json ./
-COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /prod/api .
 EXPOSE 3000
 CMD ["node", "dist/server.js"]

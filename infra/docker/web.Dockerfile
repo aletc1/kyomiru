@@ -20,5 +20,7 @@ RUN pnpm --filter @kyomiru/web build
 
 FROM nginx:alpine AS runtime
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
-COPY infra/docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY infra/docker/nginx.conf.template /etc/nginx/templates/default.conf.template
+ENV API_UPSTREAM=api:3000
+ENV NGINX_ENVSUBST_FILTER=API_UPSTREAM
 EXPOSE 80

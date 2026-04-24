@@ -50,6 +50,53 @@ jobs:
       - run: pnpm build
       - run: pnpm test
 
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build images
+        run: |
+          docker build -f infra/docker/api.Dockerfile -t kyomiru/api:ci .
+          docker build -f infra/docker/web.Dockerfile -t kyomiru/web:ci .
+          docker build -f infra/docker/migrate.Dockerfile -t kyomiru/migrate:ci .
+      - name: Bring up stack
+        env:
+          KYOMIRU_VERSION: ci
+          APP_SECRET_KEY: ${{ secrets.GITHUB_TOKEN && 'dGVzdC10ZXN0LXRlc3QtdGVzdC10ZXN0LXRlc3QtdGVzdC10ZXN0' }}
+          SESSION_SECRET: dGVzdC10ZXN0LXRlc3QtdGVzdC10ZXN0LXRlc3QtdGVzdC10ZXN0
+          MOCK_GOOGLE_AUTH_USER: test@example.com
+          WEB_ORIGIN: http://localhost:8080
+          API_ORIGIN: http://localhost:3000
+        run: |
+          # Override registry-tagged images with our locally-built ones.
+          docker tag kyomiru/api:ci quay.io/kyomiru/api:ci
+          docker tag kyomiru/web:ci quay.io/kyomiru/web:ci
+          docker tag kyomiru/migrate:ci quay.io/kyomiru/migrate:ci
+          cat > .env <<EOF
+          KYOMIRU_VERSION=ci
+          APP_SECRET_KEY=$APP_SECRET_KEY
+          SESSION_SECRET=$SESSION_SECRET
+          MOCK_GOOGLE_AUTH_USER=$MOCK_GOOGLE_AUTH_USER
+          WEB_ORIGIN=$WEB_ORIGIN
+          API_ORIGIN=$API_ORIGIN
+          EOF
+          docker compose up -d --wait --wait-timeout 120
+      - name: Hit /api/healthz through nginx
+        run: |
+          for i in $(seq 1 20); do
+            if curl -fsS http://localhost:8080/api/healthz; then
+              echo "OK"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "healthz never became ready" >&2
+          docker compose logs --no-color
+          exit 1
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
   chart-lint:
     runs-on: ubuntu-latest
     steps:

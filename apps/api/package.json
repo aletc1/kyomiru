@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "NODE_OPTIONS='--conditions=development' tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "cron:run": "tsx src/cron.ts",
-    "backfill:enrichment": "tsx src/backfillEnrichment.ts",
-    "backfill:state": "tsx src/backfillShowState.ts"
+    "cron:run": "NODE_OPTIONS='--conditions=development' tsx src/cron.ts",
+    "backfill:enrichment": "NODE_OPTIONS='--conditions=development' tsx src/backfillEnrichment.ts",
+    "backfill:state": "NODE_OPTIONS='--conditions=development' tsx src/backfillShowState.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.1",
