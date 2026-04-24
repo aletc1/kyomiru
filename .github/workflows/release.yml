@@ -41,6 +41,8 @@ jobs:
             dockerfile: infra/docker/web.Dockerfile
           - image: migrate
             dockerfile: infra/docker/migrate.Dockerfile
+          - image: landing
+            dockerfile: infra/docker/landing.Dockerfile
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
