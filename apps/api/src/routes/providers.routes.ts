@@ -18,8 +18,9 @@ import {
   markUserServiceConnected,
   resolveShowCatalogStatus,
 } from '../services/sync.service.js'
+import { EXTENSION_PROVIDER_KEYS } from '@kyomiru/shared/types/status'
 
-const INGEST_ENABLED_PROVIDERS = new Set(['crunchyroll', 'netflix'])
+const INGEST_ENABLED_PROVIDERS: Set<string> = new Set(EXTENSION_PROVIDER_KEYS)
 
 function mapItems(body: IngestBody): HistoryItem[] {
   return body.items.map((i) => ({
@@ -147,6 +148,7 @@ export async function providersRoutes(app: FastifyInstance) {
           providerKey,
           trigger,
           status: 'running',
+          extensionTokenId: req.extensionTokenId ?? null,
         }).returning({ id: syncRuns.id })
         run = inserted
       } catch (err: unknown) {
@@ -259,6 +261,7 @@ export async function providersRoutes(app: FastifyInstance) {
         providerKey,
         trigger: 'manual',
         status: 'running',
+        extensionTokenId: req.extensionTokenId ?? null,
       }).returning({ id: syncRuns.id })
 
       if (!run) return reply.status(500).send({ error: 'Failed to create sync run' })

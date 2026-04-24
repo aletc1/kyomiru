@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { eq, and, desc, asc, ilike, count, sql } from 'drizzle-orm'
-import { shows, showProviders, providers, userShowState } from '@kyomiru/db/schema'
+import { shows, showProviders, providers, userShowState, episodes, userEpisodeProgress } from '@kyomiru/db/schema'
 import { LibraryQuerySchema } from '@kyomiru/shared/contracts/library'
 import { loadShowProviderLinks } from '../services/providerLinks.js'
 
@@ -21,11 +21,20 @@ export async function libraryRoutes(app: FastifyInstance) {
     )`)
     if (q) conditions.push(ilike(shows.canonicalTitle, `%${q}%`))
 
+    const lastWatchedSql = sql`(
+      SELECT MAX(uep.watched_at)
+      FROM ${userEpisodeProgress} uep
+      INNER JOIN ${episodes} ep ON ep.id = uep.episode_id
+      WHERE uep.user_id = ${userId}
+        AND ep.show_id = ${shows.id}
+    )`
+
     const orderMap = {
       recent_activity: desc(userShowState.lastActivityAt),
       title_asc: asc(shows.canonicalTitle),
       rating: desc(userShowState.rating),
-      updated_date: desc(shows.latestAirDate),
+      last_watched: sql`${lastWatchedSql} DESC NULLS LAST`,
+      latest_air_date: desc(shows.latestAirDate),
     }
 
     const orderBy = orderMap[sort as keyof typeof orderMap] ?? desc(userShowState.lastActivityAt)

@@ -1,11 +1,15 @@
 /// <reference types="chrome" />
 
 import type { IngestBody, IngestItem, IngestShow, IngestSeason, IngestEpisode } from '@kyomiru/shared/contracts/ingest'
-import { getSession, setSession, clearSession } from '../storage.js'
+import { getSession, setSession, clearSession, getStoredProfileId, setStoredProfileId } from '../storage.js'
 import type { CrunchyrollSession } from '../storage.js'
 import type { ProviderAdapter, SessionStatus, HistoryProgress, CatalogProgress, ShowCatalog, CheckpointItem } from './types.js'
 
 const CR_BASE = 'https://www.crunchyroll.com/content/v2'
+const CR_AUTH_URL = 'https://www.crunchyroll.com/auth/v1/token'
+// Crunchyroll's web client credential (cr_web with empty secret). The token
+// endpoint rejects the request without it, even when the etp_rt cookie is valid.
+const CR_AUTH_BASIC = 'Basic Y3Jfd2ViOg=='
 const PAGE_SIZE = 100
 const PAGE_DELAY_MS = 200
 const REQUEST_TIMEOUT_MS = 30_000
@@ -15,7 +19,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export class CrunchyrollAuthError extends Error {
   status: number
   constructor(status: number) {
-    super(`Crunchyroll session expired (HTTP ${status}). Open crunchyroll.com and browse any page to refresh your session, then try again.`)
+    super(`Crunchyroll session expired (HTTP ${status}). Open crunchyroll.com — your session will refresh automatically.`)
     this.name = 'CrunchyrollAuthError'
     this.status = status
   }
@@ -399,24 +403,31 @@ export const crunchyrollAdapter: ProviderAdapter = {
 
     const profileId = extractProfileId(details.url)
     if (profileId) {
+      // Persist profileId durably so it survives a session clear (e.g. after 401).
+      await setStoredProfileId('crunchyroll', profileId)
       await setSession('crunchyroll', { jwt, profileId, capturedAt: Date.now() } satisfies CrunchyrollSession)
       return
     }
+
     const existing = await getSession<CrunchyrollSession>('crunchyroll')
-    if (!existing) return
-    if (existing.jwt === jwt) return
-    await setSession('crunchyroll', { jwt, profileId: existing.profileId, capturedAt: Date.now() } satisfies CrunchyrollSession)
+    if (existing?.jwt === jwt) return
+
+    // After a session clear the in-memory session is gone, but the durable profileId
+    // lets us recover from any Bearer-bearing request, not just profile-scoped ones.
+    const profileIdFallback = existing?.profileId ?? await getStoredProfileId('crunchyroll')
+    if (!profileIdFallback) return
+    await setSession('crunchyroll', { jwt, profileId: profileIdFallback, capturedAt: Date.now() } satisfies CrunchyrollSession)
   },
 
   async getSessionStatus(): Promise<SessionStatus> {
     const session = await getSession<CrunchyrollSession>('crunchyroll')
-    if (!session) return { kind: 'missing', reason: 'No Crunchyroll session captured. Open crunchyroll.com and browse any page.' }
-    if (!isValidProfileId(session.profileId)) return { kind: 'missing', reason: 'No Crunchyroll session captured. Open crunchyroll.com and browse any page.' }
+    if (!session) return { kind: 'missing', reason: 'No Crunchyroll session captured. Open crunchyroll.com — we\'ll capture it automatically.' }
+    if (!isValidProfileId(session.profileId)) return { kind: 'missing', reason: 'No Crunchyroll session captured. Open crunchyroll.com — we\'ll capture it automatically.' }
 
     const exp = decodeJwtExp(session.jwt)
     const skewMs = 30_000
     if (exp !== null && exp * 1000 <= Date.now() + skewMs) {
-      return { kind: 'expired', reason: 'Session expired. Open crunchyroll.com and browse any page to refresh it.' }
+      return { kind: 'expired', reason: 'Session expired. Open crunchyroll.com — your session will refresh automatically.' }
     }
 
     return { kind: 'ok', capturedAt: session.capturedAt }
@@ -524,6 +535,57 @@ export const crunchyrollAdapter: ProviderAdapter = {
   buildShowFromCatalog(cat: ShowCatalog, sample?: unknown): IngestShow {
     return buildCrShowFromCatalog(cat as ShowCatalog<CrunchyrollSeriesCatalog>, sample as CrunchyrollHistoryItem | undefined)
   },
+}
+
+// ─── Proactive session refresh ────────────────────────────────────────────────
+
+interface CrunchyrollTokenResponse {
+  access_token?: string
+  profile_id?: string
+}
+
+/**
+ * Refresh the Crunchyroll session directly from the browser's cookies by
+ * calling Crunchyroll's own token endpoint (the same call the web app makes).
+ * Returns true if a fresh session was stored, false if cookies are gone/invalid.
+ */
+export async function refreshCrunchyrollSession(): Promise<boolean> {
+  let resp: Response
+  try {
+    resp = await fetch(CR_AUTH_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: CR_AUTH_BASIC,
+      },
+      body: 'grant_type=etp_rt_cookie',
+      credentials: 'include',
+    })
+  } catch {
+    return false
+  }
+
+  if (!resp.ok) return false
+
+  let data: CrunchyrollTokenResponse
+  try {
+    data = (await resp.json()) as CrunchyrollTokenResponse
+  } catch {
+    return false
+  }
+
+  const jwt = data.access_token
+  if (!jwt) return false
+
+  // Use the profile_id from the token response if it's a valid UUID; otherwise
+  // fall back to the last durably-stored one from a previous capture.
+  const profileId = (isValidProfileId(data.profile_id ?? '') ? data.profile_id! : null)
+    ?? await getStoredProfileId('crunchyroll')
+  if (!profileId) return false
+
+  await setStoredProfileId('crunchyroll', profileId)
+  await setSession('crunchyroll', { jwt, profileId, capturedAt: Date.now() } satisfies CrunchyrollSession)
+  return true
 }
 
 // ─── Utilities used by storage.ts and background.ts ──────────────────────────

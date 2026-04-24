@@ -2,17 +2,52 @@
 
 import {
   clearSession,
+  clearConfig,
+  setAuthError,
   getConfig,
   getSyncState,
   setSyncState,
   type SyncState,
 } from './storage.js'
-import { runSync, type SyncEvent } from './sync.js'
+import { runSync, KyomiruAuthError, type SyncEvent } from './sync.js'
 import { allAdapters } from './providers/index.js'
-import { CrunchyrollAuthError } from './providers/crunchyroll.js'
+import { CrunchyrollAuthError, refreshCrunchyrollSession } from './providers/crunchyroll.js'
 import { NetflixAuthError } from './providers/netflix.js'
 
 const SYNC_LOG_MAX_LINES = 200
+const SESSION_REFRESH_THROTTLE_MS = 30_000
+
+// ─── Proactive session refresh on navigation ──────────────────────────────────
+
+// Throttle map: providerKey → timestamp of last refresh attempt.
+const lastRefreshAttempt = new Map<string, number>()
+
+// When the user loads any Crunchyroll page, check whether the session is stale
+// and refresh it via the browser's existing cookies — no page interaction needed.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete') return
+  const url = tab.url
+  if (!url) return
+  let parsed: URL
+  try { parsed = new URL(url) } catch { return }
+
+  const adapter = allAdapters().find((a) => a.hostMatches(parsed))
+  if (!adapter || adapter.key !== 'crunchyroll') return
+
+  void (async () => {
+    const now = Date.now()
+    const lastAttempt = lastRefreshAttempt.get(adapter.key) ?? 0
+    if (now - lastAttempt < SESSION_REFRESH_THROTTLE_MS) return
+    // Stamp before any await so two concurrent navigations can't both pass the
+    // throttle check and double-fire the refresh.
+    lastRefreshAttempt.set(adapter.key, now)
+
+    const status = await adapter.getSessionStatus()
+    if (status.kind === 'ok') return
+
+    await refreshCrunchyrollSession()
+  })()
+})
 
 // Register a webRequest listener for each adapter that implements onRequest.
 for (const adapter of allAdapters()) {
@@ -109,6 +144,10 @@ async function startSync(providerKey: string): Promise<void> {
     await writeChain
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
+    if (err instanceof KyomiruAuthError) {
+      await clearConfig()
+      await setAuthError(true)
+    }
     if (err instanceof CrunchyrollAuthError) await clearSession('crunchyroll')
     if (err instanceof NetflixAuthError) await clearSession('netflix')
     state = { status: 'error', startedAt, finishedAt: Date.now(), log, error: message }
