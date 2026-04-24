@@ -12,14 +12,24 @@ export function MobileSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
 
   useEffect(() => {
-    setMobileSidebarOpen(false)
+    if (useAppStore.getState().mobileSidebarOpen) setMobileSidebarOpen(false)
   }, [pathname, setMobileSidebarOpen])
+
+  useEffect(() => {
+    const mql = window.matchMedia('(min-width: 768px)')
+    const handler = (e: MediaQueryListEvent) => {
+      if (e.matches) setMobileSidebarOpen(false)
+    }
+    mql.addEventListener('change', handler)
+    return () => mql.removeEventListener('change', handler)
+  }, [setMobileSidebarOpen])
 
   return (
     <Dialog open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
       <DialogPortal>
         <DialogOverlay className="md:hidden" />
         <DialogPrimitive.Content
+          // suppresses Radix's missing-DialogDescription a11y warning
           aria-describedby={undefined}
           className="md:hidden fixed left-0 top-0 z-50 h-full w-[80%] max-w-xs bg-sidebar border-r flex flex-col focus:outline-none"
         >
@@ -33,7 +43,7 @@ export function MobileSidebar() {
               <X className="h-5 w-5" />
             </DialogClose>
           </div>
-          <SidebarContent expanded onNavigate={() => setMobileSidebarOpen(false)} />
+          <SidebarContent showLabels onNavigate={() => setMobileSidebarOpen(false)} />
         </DialogPrimitive.Content>
       </DialogPortal>
     </Dialog>
