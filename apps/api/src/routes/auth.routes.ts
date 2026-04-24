@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import * as oidcClient from 'openid-client'
 import { users } from '@kyomiru/db/schema'
 import { randomUUID } from 'node:crypto'
+import { isEmailApproved } from '../services/authGate.js'
 
 async function signInAs(
   app: FastifyInstance,
@@ -9,6 +10,11 @@ async function signInAs(
   reply: FastifyReply,
   profile: { googleSub: string; email: string; displayName: string; avatarUrl: string | null },
 ) {
+  if (!(await isEmailApproved(app, profile.email))) {
+    const params = new URLSearchParams({ email: profile.email })
+    return reply.redirect(`${app.config.WEB_ORIGIN}/unauthorized?${params}`)
+  }
+
   const [user] = await app.db
     .insert(users)
     .values({
@@ -35,6 +41,7 @@ async function signInAs(
   const sessionId = randomUUID()
   req.session.set('userId', user.id)
   req.session.set('sessionId', sessionId)
+  req.session.set('email', user.email)
   await app.redis.setex(`session:${sessionId}`, 30 * 24 * 3600, user.id)
   reply.redirect(`${app.config.WEB_ORIGIN}/library`)
 }

@@ -6,6 +6,7 @@ import { Q } from '@/lib/queryKeys'
 import { useAppStore } from '@/lib/store'
 import { WatchQueue } from './WatchQueue'
 import { Badge } from './ui/badge'
+import { Logo } from './Logo'
 import { cn } from '@/lib/utils'
 import type { NewContentCount } from '@kyomiru/shared/contracts/auth'
 
@@ -34,7 +35,10 @@ export function Sidebar() {
     >
       {/* Logo */}
       <div className="flex h-14 items-center px-4 border-b">
-        {sidebarOpen && <span className="font-bold text-lg tracking-tight">Kyomiru</span>}
+        {sidebarOpen
+          ? <Logo size="sm" showWordmark />
+          : <Logo size="sm" showWordmark={false} />
+        }
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
           className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
