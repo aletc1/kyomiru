@@ -1,0 +1,39 @@
+Kyomiru has been deployed!
+
+{{- if .Values.app.mockGoogleAuthUser }}
+
+  WARNING: MOCK_GOOGLE_AUTH_USER is set to {{ .Values.app.mockGoogleAuthUser | quote }}.
+  Anyone who visits /api/auth/google will be signed in as that email with no
+  password. Do not expose this instance to the public internet.
+{{- end }}
+
+{{- if .Values.ingress.enabled }}
+
+  Your Kyomiru instance will be available at:
+    {{- if .Values.ingress.tls.enabled }}
+    https://{{ .Values.host }}/
+    {{- else }}
+    http://{{ .Values.host }}/
+    {{- end }}
+
+  Sign in at: {{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.host }}/api/auth/google
+{{- else }}
+  Ingress is disabled. Port-forward the web service to access locally:
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "kyomiru.fullname" . }}-web 8080:80
+  Then open: http://localhost:8080
+{{- end }}
+
+Verify that migrations and the API are healthy:
+  kubectl -n {{ .Release.Namespace }} get job,deploy,cronjob
+
+Check API health:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "kyomiru.fullname" . }}-api 3000:3000
+  curl http://localhost:3000/healthz
+
+Run an ad-hoc enrichment backfill:
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- node dist/backfillEnrichment.js
+
+Run a show-state backfill:
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- node dist/backfillShowState.js
+
+Full documentation: https://github.com/kyomiru/kyomiru/blob/main/charts/kyomiru/README.md

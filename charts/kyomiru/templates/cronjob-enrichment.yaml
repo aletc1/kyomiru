@@ -1,0 +1,46 @@
+{{- if .Values.cron.enrichment.enabled -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "kyomiru.fullname" . }}-cron-enrichment
+  labels:
+    {{- include "kyomiru.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cron-enrichment
+spec:
+  schedule: {{ .Values.cron.enrichment.schedule | quote }}
+  concurrencyPolicy: {{ .Values.cron.enrichment.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.cron.enrichment.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.cron.enrichment.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: {{ .Values.cron.enrichment.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "kyomiru.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: cron-enrichment
+        spec:
+          restartPolicy: Never
+          {{- with .Values.image.pullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          serviceAccountName: {{ include "kyomiru.serviceAccountName" . }}
+          containers:
+            - name: cron
+              image: "{{ .Values.image.registry }}/{{ .Values.image.api.repository }}:{{ .Values.image.api.tag | default .Chart.AppVersion }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["node", "dist/cron.js"]
+              env:
+                {{- include "kyomiru.databaseEnv" . | nindent 16 }}
+                {{- include "kyomiru.redisEnv" . | nindent 16 }}
+              envFrom:
+                - secretRef:
+                    name: {{ include "kyomiru.secretName" . }}
+                - configMapRef:
+                    name: {{ include "kyomiru.configmapName" . }}
+              {{- with .Values.cron.enrichment.resources }}
+              resources:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+{{- end }}

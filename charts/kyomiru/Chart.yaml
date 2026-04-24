@@ -1,0 +1,28 @@
+apiVersion: v2
+name: kyomiru
+description: Self-hostable PWA for tracking anime and TV show watch history
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+home: https://github.com/aletc1/kyomiru
+sources:
+  - https://github.com/aletc1/kyomiru
+keywords:
+  - anime
+  - watch-tracker
+  - pwa
+  - crunchyroll
+  - netflix
+maintainers:
+  - name: Alejandro Tamayo
+    url: https://github.com/aletc1
+kubeVersion: ">=1.25.0"
+dependencies:
+  - name: postgresql
+    version: "~18.6.0"
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: postgresql.enabled
+  - name: redis
+    version: "~25.4.0"
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: redis.enabled

@@ -11,6 +11,16 @@
           "type": "json",
           "path": "apps/extension/manifest.json",
           "jsonpath": "$.version"
+        },
+        {
+          "type": "yaml",
+          "path": "charts/kyomiru/Chart.yaml",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "yaml",
+          "path": "charts/kyomiru/Chart.yaml",
+          "jsonpath": "$.appVersion"
         }
       ]
     }

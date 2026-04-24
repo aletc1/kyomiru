@@ -1,0 +1,148 @@
+# Public hostname served by this deployment.
+# Used for the Ingress rule, WEB_ORIGIN, API_ORIGIN, and the default OIDC redirect URL.
+host: kyomiru.app
+
+image:
+  # Registry prefix shared by all three images.
+  registry: quay.io/kyomiru
+  pullPolicy: IfNotPresent
+  # Image tags default to .Chart.AppVersion when left blank.
+  api:
+    repository: api
+    tag: ""
+  web:
+    repository: web
+    tag: ""
+  migrate:
+    repository: migrate
+    tag: ""
+  # ImagePullSecrets for private registries.
+  pullSecrets: []
+
+ingress:
+  enabled: true
+  # Ingress class — override for Traefik, HAProxy, etc.
+  className: nginx
+  # Extra annotations merged into the Ingress resource.
+  annotations: {}
+  tls:
+    enabled: true
+    # TLS Secret name. Must exist or be provisioned by cert-manager.
+    secretName: kyomiru-tls
+    # When set, adds the cert-manager.io/cluster-issuer annotation so cert-manager
+    # auto-provisions the certificate (e.g. "letsencrypt-prod").
+    clusterIssuer: ""
+
+# Application runtime configuration.
+app:
+  nodeEnv: production
+  # Leave blank to have the chart generate a secure random value at install time
+  # and preserve it across upgrades (via Helm's lookup helper).
+  appSecretKey: ""
+  # Same auto-generation/preservation behaviour as appSecretKey.
+  sessionSecret: ""
+  # TMDb API key for non-anime show metadata enrichment (optional).
+  # Get one free at https://www.themoviedb.org/settings/api
+  tmdbApiKey: ""
+  # Sentry DSN for error reporting (optional).
+  sentryDsn: ""
+  providersFixture: "false"
+  # Google OAuth 2.0 credentials.
+  # Required unless mockGoogleAuthUser is set.
+  # See charts/kyomiru/README.md for the full setup guide.
+  google:
+    clientId: ""
+    clientSecret: ""
+    # Defaults to https://<host>/api/auth/callback when blank.
+    redirectUrl: ""
+  # DEV / HOMELAB ONLY — bypass Google OIDC and sign in instantly as this email.
+  # Do NOT set on an instance exposed to the public internet.
+  mockGoogleAuthUser: ""
+
+# Reference an externally created Secret instead of the chart-managed one.
+# The Secret must contain the keys listed in charts/kyomiru/README.md.
+existingSecret: ""
+
+# Overrides for the generated resource names (standard Helm convention).
+nameOverride: ""
+fullnameOverride: ""
+
+# API Deployment options.
+api:
+  replicaCount: 1
+  resources: {}
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Web Deployment options.
+web:
+  replicaCount: 1
+  resources: {}
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Migration Job (runs as a pre-install / pre-upgrade Helm hook).
+migrations:
+  enabled: true
+  backoffLimit: 3
+
+# Scheduled enrichment (enqueues AniList/TMDb metadata refresh at 03:00 daily).
+cron:
+  enrichment:
+    enabled: true
+    schedule: "0 3 * * *"
+    # Forbid prevents two enrichment runs from overlapping.
+    concurrencyPolicy: Forbid
+    activeDeadlineSeconds: 1800
+    successfulJobsHistoryLimit: 1
+    failedJobsHistoryLimit: 3
+    resources: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ─── Sub-chart: Bitnami PostgreSQL ────────────────────────────────────────────
+# Set postgresql.enabled=false and configure externalDatabase to use a managed DB.
+postgresql:
+  enabled: true
+  auth:
+    username: kyomiru
+    database: kyomiru
+    # Leave blank — Bitnami generates a random password and stores it in a Secret.
+    password: ""
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+
+# ─── Sub-chart: Bitnami Redis ─────────────────────────────────────────────────
+# Set redis.enabled=false and configure externalRedis to use a managed Redis.
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  architecture: standalone
+  master:
+    persistence:
+      enabled: true
+      size: 2Gi
+
+# ─── External database (used when postgresql.enabled=false) ───────────────────
+externalDatabase:
+  # Full postgres:// connection URL. Stored in the chart-managed Secret.
+  url: ""
+  # Reference an existing Secret that already contains the URL.
+  existingSecret: ""
+  existingSecretKey: database-url
+
+# ─── External Redis (used when redis.enabled=false) ───────────────────────────
+externalRedis:
+  url: ""
+  existingSecret: ""
+  existingSecretKey: redis-url

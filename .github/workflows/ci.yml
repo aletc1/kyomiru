@@ -49,3 +49,29 @@ jobs:
       - run: pnpm lint
       - run: pnpm build
       - run: pnpm test
+
+  chart-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Update chart dependencies
+        run: helm dependency update charts/kyomiru
+      - name: Lint chart
+        run: helm lint charts/kyomiru --strict
+      - name: Render default values (bundled Postgres/Redis, mock auth)
+        run: |
+          helm template kyomiru charts/kyomiru \
+            --set host=test.local \
+            --set app.mockGoogleAuthUser=test@example.com \
+            > /dev/null
+      - name: Render external DB/Redis path
+        run: |
+          helm template kyomiru charts/kyomiru \
+            --set host=test.local \
+            --set app.mockGoogleAuthUser=test@example.com \
+            --set postgresql.enabled=false \
+            --set externalDatabase.url=postgresql://u:p@db.example.com:5432/k \
+            --set redis.enabled=false \
+            --set externalRedis.url=redis://cache.example.com:6379 \
+            > /dev/null

@@ -72,6 +72,25 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,scope=${{ matrix.image }},mode=max
 
+  package-chart:
+    # Gate on successful image builds so we never publish a chart referencing
+    # image tags that weren't pushed.
+    needs: [release-please, build-images]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Login to quay.io
+        run: echo "${{ secrets.QUAY_PASSWORD }}" | helm registry login quay.io -u "${{ secrets.QUAY_USERNAME }}" --password-stdin
+      - name: Update chart dependencies
+        run: helm dependency update charts/kyomiru
+      - name: Package and push chart
+        run: |
+          V="${{ needs.release-please.outputs.version }}"
+          helm package charts/kyomiru --version "$V" --app-version "$V"
+          helm push "kyomiru-${V}.tgz" oci://quay.io/kyomiru/charts
+
   build-extension:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'

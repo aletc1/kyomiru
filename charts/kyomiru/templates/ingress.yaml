@@ -1,0 +1,46 @@
+{{- if .Values.ingress.enabled -}}
+{{- $fullname := include "kyomiru.fullname" . -}}
+{{- $annotations := dict -}}
+{{- if .Values.ingress.tls.clusterIssuer -}}
+  {{- $_ := set $annotations "cert-manager.io/cluster-issuer" .Values.ingress.tls.clusterIssuer -}}
+{{- end -}}
+{{- $annotations = merge $annotations .Values.ingress.annotations -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "kyomiru.labels" . | nindent 4 }}
+  {{- if $annotations }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- end }}
+  {{- if and .Values.ingress.tls.enabled .Values.ingress.tls.secretName }}
+  tls:
+    - hosts:
+        - {{ .Values.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.host | quote }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}-api
+                port:
+                  number: 3000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}-web
+                port:
+                  number: 80
+{{- end }}

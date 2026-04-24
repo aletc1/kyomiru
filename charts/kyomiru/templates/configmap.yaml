@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kyomiru.configmapName" . }}
+  labels:
+    {{- include "kyomiru.labels" . | nindent 4 }}
+data:
+  NODE_ENV: {{ .Values.app.nodeEnv | quote }}
+  PORT: "3000"
+  WEB_ORIGIN: {{ include "kyomiru.webOrigin" . | quote }}
+  API_ORIGIN: {{ include "kyomiru.apiOrigin" . | quote }}
+  OIDC_REDIRECT_URL: {{ include "kyomiru.oidcRedirectUrl" . | quote }}
+  PROVIDERS_FIXTURE: {{ .Values.app.providersFixture | quote }}
+  {{- if .Values.app.mockGoogleAuthUser }}
+  MOCK_GOOGLE_AUTH_USER: {{ .Values.app.mockGoogleAuthUser | quote }}
+  {{- end }}

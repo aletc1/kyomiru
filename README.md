@@ -29,14 +29,16 @@ pnpm db:migrate && pnpm db:seed  # create tables and seed provider registry
 pnpm dev                         # api on :3000, web on :5173
 ```
 
+See [`.env.example`](./.env.example) for the full variable list and [DEVELOPMENT.md](./DEVELOPMENT.md) for deeper setup notes.
+
 ## Self-hosting
 
-Kyomiru ships prebuilt multi-arch (amd64 + arm64) images to `quay.io/kyomiru`. A `docker-compose.yml` in the repo root spins everything up.
+Kyomiru ships prebuilt multi-arch (amd64 + arm64) images to [quay.io/kyomiru](https://quay.io/organization/kyomiru). The repo-root [`docker-compose.yml`](./docker-compose.yml) spins everything up.
 
 ### 5-minute setup
 
 ```bash
-git clone https://github.com/<your-fork>/kyomiru
+git clone https://github.com/aletc1/kyomiru
 cd kyomiru
 cp .env.self-host.example .env
 # Edit .env — at minimum set APP_SECRET_KEY, SESSION_SECRET, and either
@@ -44,6 +46,8 @@ cp .env.self-host.example .env
 docker compose up -d
 open http://localhost:8080
 ```
+
+See [`.env.self-host.example`](./.env.self-host.example) for every self-host variable and [`docker-compose.yml`](./docker-compose.yml) for the full service topology.
 
 ### Required environment variables
 
@@ -67,15 +71,34 @@ open http://localhost:8080
 | `KYOMIRU_PORT` | Host port for the web container. Defaults to `8080` |
 | `SENTRY_DSN` | Error reporting |
 
+### Kubernetes (Helm)
+
+Deploy to any Kubernetes cluster with a single command:
+
+```bash
+# Replace X.Y.Z with the latest tag from https://github.com/aletc1/kyomiru/releases
+helm install kyomiru oci://quay.io/kyomiru/charts/kyomiru \
+  --namespace kyomiru --create-namespace \
+  --version X.Y.Z \
+  --set host=kyomiru.app \
+  --set ingress.tls.clusterIssuer=letsencrypt-prod \
+  --set app.google.clientId=YOUR_CLIENT_ID \
+  --set app.google.clientSecret=YOUR_CLIENT_SECRET
+```
+
+The chart bundles Bitnami PostgreSQL and Redis sub-charts (opt-out via `postgresql.enabled=false` / `redis.enabled=false` to use managed services). Migrations run automatically as a Helm hook. A `CronJob` handles nightly metadata enrichment.
+
+See [charts/kyomiru/README.md](./charts/kyomiru/README.md) for the full guide covering Google OAuth setup, TLS, external databases, backfills, and more.
+
 ### Configuring Quay.io secrets (for maintainers publishing images)
 
-1. In [quay.io](https://quay.io), create a **robot account** under the `kyomiru` org with *Write* permission on `kyomiru/api`, `kyomiru/web`, and `kyomiru/migrate`.
+1. In [quay.io](https://quay.io), create a **robot account** under the `kyomiru` org with *Write* permission on `kyomiru/api`, `kyomiru/web`, `kyomiru/migrate`, and `kyomiru/charts`.
 2. Copy the robot name (e.g. `kyomiru+github_actions`) and its Docker CLI token.
 3. In GitHub → *Settings → Secrets and variables → Actions*, add two repository secrets:
    - `QUAY_USERNAME` = the robot name
    - `QUAY_PASSWORD` = the Docker CLI token
 
-The `release.yml` workflow reads these automatically on every release.
+The [`release.yml`](./.github/workflows/release.yml) workflow reads these automatically on every release to push images and the Helm chart OCI artifact.
 
 ### Connect the Chrome extension
 
@@ -95,6 +118,7 @@ Watch history is imported via the Kyomiru Chrome extension, which captures your 
 |---|---|
 | [DEVELOPMENT.md](./DEVELOPMENT.md) | Setup, commands, env vars, data model, architecture, API reference, debugging, deployment |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Commit style, pre-PR checks, adding a streaming provider |
+| [charts/kyomiru/README.md](./charts/kyomiru/README.md) | Kubernetes / Helm chart: install, Google OAuth, TLS, external DB/Redis, upgrades |
 | [apps/extension/README.md](./apps/extension/README.md) | Chrome extension: how it works, build, install |
 
 ## License
