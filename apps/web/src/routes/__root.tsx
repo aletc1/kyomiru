@@ -1,6 +1,7 @@
 import { createRootRouteWithContext, Outlet, redirect, useRouterState } from '@tanstack/react-router'
 import type { QueryClient } from '@tanstack/react-query'
 import { Sidebar } from '@/components/Sidebar'
+import { MobileSidebar } from '@/components/MobileSidebar'
 import { Logo } from '@/components/Logo'
 import { Menu } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
@@ -35,16 +36,17 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 })
 
 function RootLayout() {
-  const { setSidebarOpen } = useAppStore()
+  const { setMobileSidebarOpen } = useAppStore()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   if (pathname === '/login' || pathname === '/unauthorized') return <Outlet />
   return (
     <div className="flex min-h-screen">
       <Sidebar />
+      <MobileSidebar />
       <div className="flex-1 flex flex-col min-w-0">
         {/* Mobile top bar */}
         <header className="flex md:hidden h-14 items-center border-b px-4 gap-3 bg-background sticky top-0 z-10">
-          <button onClick={() => setSidebarOpen(true)} aria-label="Open menu">
+          <button onClick={() => setMobileSidebarOpen(true)} aria-label="Open menu">
             <Menu className="h-5 w-5" />
           </button>
           <Logo size="sm" showWordmark />
