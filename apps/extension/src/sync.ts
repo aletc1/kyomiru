@@ -40,6 +40,10 @@ interface ApiConfig {
   token: string
 }
 
+export class KyomiruAuthError extends Error {
+  constructor() { super('Extension token was revoked. Pair the device again.') }
+}
+
 interface ResolveShowInfo {
   known: boolean
   catalogSyncedAt: string | null
@@ -55,6 +59,7 @@ async function apiPost<T>(api: ApiConfig, path: string, body: unknown): Promise<
     },
     body: JSON.stringify(body),
   })
+  if (resp.status === 401) throw new KyomiruAuthError()
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
     return { ok: false, status: resp.status, body: text }
@@ -140,7 +145,8 @@ async function resolveShows(
       }
     }
     return map
-  } catch {
+  } catch (err) {
+    if (err instanceof KyomiruAuthError) throw err
     return map
   }
 }
@@ -419,6 +425,7 @@ export async function pingKyomiru(
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
   })
+  if (resp.status === 401) throw new KyomiruAuthError()
   if (!resp.ok) {
     throw new Error(`Ping failed: HTTP ${resp.status} ${await resp.text().catch(() => '')}`)
   }

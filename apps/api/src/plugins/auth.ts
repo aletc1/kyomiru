@@ -13,6 +13,7 @@ declare module 'fastify' {
   }
   interface FastifyRequest {
     extensionUserId?: string
+    extensionTokenId?: string
   }
 }
 
@@ -66,6 +67,7 @@ export const authPlugin = fp(async (app) => {
     if (!row) return reply.status(401).send({ error: 'Invalid or revoked token' })
 
     req.extensionUserId = row.userId
+    req.extensionTokenId = row.id
     await app.db
       .update(extensionTokens)
       .set({ lastUsedAt: new Date() })

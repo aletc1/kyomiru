@@ -130,6 +130,7 @@ export const ExtensionTokenSchema = z.object({
   label: z.string(),
   createdAt: z.string(),
   lastUsedAt: z.string().nullable(),
+  syncsByProvider: z.record(z.string(), z.string()).optional(),
 })
 
 export const CreateExtensionTokenBodySchema = z.object({

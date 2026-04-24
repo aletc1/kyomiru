@@ -114,6 +114,14 @@
     a { color: var(--accent); }
     .hidden { display: none !important; }
     .provider-name { font-weight: 600; font-size: 13px; }
+    .banner {
+      margin-bottom: 10px;
+      padding: 8px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .banner.warn { background: color-mix(in srgb, var(--warning) 15%, transparent); color: var(--warning); border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent); }
   </style>
 </head>
 <body>
@@ -121,6 +129,9 @@
 
   <!-- Configuration view -->
   <section id="setup" class="hidden">
+    <div id="revoked-banner" class="banner warn hidden">
+      This device was revoked. Create a new extension token in Kyomiru → Settings → Devices and paste it below.
+    </div>
     <p class="muted">Connect this extension to your Kyomiru instance.</p>
     <div class="row">
       <label for="kyomiru-url">Kyomiru URL</label>
