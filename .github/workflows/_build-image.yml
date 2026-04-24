@@ -1,0 +1,58 @@
+name: Build & push image
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Image name under quay.io/kyomiru/
+        required: true
+        type: string
+      dockerfile:
+        description: Path to the Dockerfile
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      major:
+        required: true
+        type: string
+      minor:
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: quay.io/kyomiru/${{ inputs.image }}
+          tags: |
+            type=raw,value=${{ inputs.version }}
+            type=raw,value=${{ inputs.major }}.${{ inputs.minor }}
+            type=raw,value=${{ inputs.major }}
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ inputs.dockerfile }}
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ inputs.image }}
+          cache-to: type=gha,scope=${{ inputs.image }},mode=max
