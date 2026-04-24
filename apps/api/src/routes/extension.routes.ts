@@ -16,13 +16,13 @@ export async function extensionRoutes(app: FastifyInstance) {
   app.get('/extension/me', { preHandler: app.requireExtensionAuth }, async (req, reply) => {
     const userId = req.extensionUserId!
     const [u] = await app.db
-      .select({ id: users.id, email: users.email, displayName: users.displayName })
+      .select({ id: users.id, email: users.email, displayName: users.displayName, preferredLocale: users.preferredLocale })
       .from(users)
       .where(eq(users.id, userId))
       .limit(1)
 
     if (!u) return reply.status(404).send({ error: 'User not found' })
-    reply.send({ id: u.id, email: u.email, displayName: u.displayName })
+    reply.send({ id: u.id, email: u.email, displayName: u.displayName, preferredLocale: u.preferredLocale ?? null })
   })
 
   app.get('/extension/tokens', { preHandler: app.requireAuth }, async (req, reply) => {

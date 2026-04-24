@@ -5,25 +5,23 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-/**
- * Render an ISO timestamp as a compact relative phrase ("2m ago", "3y ago").
- * Returns null when `iso` is null/undefined so callers can short-circuit rendering.
- */
-export function formatRelative(iso: string | null | undefined): string | null {
+export function formatRelative(iso: string | null | undefined, locale?: string): string | null {
   if (!iso) return null
   const d = new Date(iso)
   const diffMs = Date.now() - d.getTime()
-  const mins = Math.round(diffMs / 60_000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
+  const diffSecs = Math.round(diffMs / 1000)
+
+  const rtf = new Intl.RelativeTimeFormat(locale ?? 'en-US', { numeric: 'auto' })
+
+  if (diffSecs < 60) return rtf.format(-diffSecs, 'second')
+  const mins = Math.round(diffSecs / 60)
+  if (mins < 60) return rtf.format(-mins, 'minute')
   const hours = Math.round(mins / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return rtf.format(-hours, 'hour')
   const days = Math.round(hours / 24)
-  if (days < 7) return `${days}d ago`
-  const weeks = Math.round(days / 7)
-  if (weeks < 5) return `${weeks}w ago`
+  if (days < 30) return rtf.format(-days, 'day')
   const months = Math.round(days / 30)
-  if (months < 12) return `${months}mo ago`
+  if (months < 12) return rtf.format(-months, 'month')
   const years = Math.round(days / 365)
-  return `${years}y ago`
+  return rtf.format(-years, 'year')
 }

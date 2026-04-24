@@ -13,6 +13,7 @@ import { runSync, KyomiruAuthError, type SyncEvent } from './sync.js'
 import { allAdapters } from './providers/index.js'
 import { CrunchyrollAuthError, refreshCrunchyrollSession } from './providers/crunchyroll.js'
 import { NetflixAuthError } from './providers/netflix.js'
+import { initLocale, t } from './i18n.js'
 
 const SYNC_LOG_MAX_LINES = 200
 const SESSION_REFRESH_THROTTLE_MS = 30_000
@@ -84,33 +85,40 @@ function formatEvent(ev: SyncEvent): string | null {
     case 'info':
       return ev.message
     case 'progress':
-      return `Page ${ev.page} · ${ev.itemsSoFar}${ev.totalKnown ? ` / ${ev.totalKnown}` : ''} items`
+      return t('ev_page_progress', {
+        page: ev.page,
+        items: ev.itemsSoFar,
+        total: ev.totalKnown ? ` / ${ev.totalKnown}` : '',
+      })
     case 'catalog-progress':
-      if (!ev.ok) return `Catalog ${ev.index}/${ev.total} · ${ev.showId} failed: ${ev.reason ?? 'unknown'}`
-      if (ev.index === ev.total || ev.index % 5 === 0) return `Catalog ${ev.index}/${ev.total}…`
+      if (!ev.ok) return t('ev_catalog_failed', { i: ev.index, total: ev.total, showId: ev.showId, reason: ev.reason ?? 'unknown' })
+      if (ev.index === ev.total || ev.index % 5 === 0) return t('ev_catalog_progress', { i: ev.index, total: ev.total })
       return null
     case 'resolve-done': {
       const needsCatalog = ev.stale + ev.unknown
-      if (ev.fresh === 0) return `All ${ev.total} show(s) need catalog fetch`
-      if (needsCatalog === 0) return `All ${ev.total} show(s) already known — skipping catalog fetch`
-      return `${ev.fresh} show(s) already known (skipping catalog), ${needsCatalog} need catalog`
+      if (ev.fresh === 0) return t('ev_resolve_all_unknown', { n: ev.total })
+      if (needsCatalog === 0) return t('ev_resolve_all_known', { n: ev.total })
+      return t('ev_resolve_mixed', { fresh: ev.fresh, needs: needsCatalog })
     }
     case 'ingest-start':
-      return `Uploading chunk ${ev.batch} (${ev.shows} show(s), ${ev.items} item(s))…`
+      return t('ev_uploading_chunk', { batch: ev.batch, shows: ev.shows, items: ev.items })
     case 'ingest-done':
       return ev.itemsSkipped > 0
-        ? `Chunk ${ev.batch} done · ${ev.itemsIngested} ingested (${ev.itemsNew} new, ${ev.itemsSkipped} skipped)`
-        : `Chunk ${ev.batch} done · ${ev.itemsIngested} ingested (${ev.itemsNew} new)`
+        ? t('ev_chunk_done_skipped', { batch: ev.batch, ingested: ev.itemsIngested, newCount: ev.itemsNew, skipped: ev.itemsSkipped })
+        : t('ev_chunk_done', { batch: ev.batch, ingested: ev.itemsIngested, newCount: ev.itemsNew })
     case 'done':
-      return `Sync complete · ${ev.totalIngested} items (${ev.totalNew} new)`
+      return t('ev_done', { items: ev.totalIngested, newCount: ev.totalNew })
     case 'error':
-      return `Error: ${ev.message}`
+      return t('ev_error', { message: ev.message })
   }
 }
 
 async function startSync(providerKey: string): Promise<void> {
   const existing = await getSyncState(providerKey)
   if (existing.status === 'running') return
+
+  const cfg = await getConfig()
+  initLocale(cfg?.userPreferredLocale ?? null)
 
   const startedAt = Date.now()
   const log: string[] = []

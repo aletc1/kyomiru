@@ -1,41 +1,11 @@
 import { Fragment } from 'react'
 import { BrainCircuit, Chrome, ChevronRight, ServerCog, Tv2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Card, CardContent } from './ui/card'
 
-interface Step {
-  number: number
-  icon: LucideIcon
-  title: string
-  body: string
-}
-
-const STEPS: Step[] = [
-  {
-    number: 1,
-    icon: Tv2,
-    title: 'You watch, as usual',
-    body: 'Browse Crunchyroll or Netflix normally. The Kyomiru Chrome extension notices your session — no passwords stored.',
-  },
-  {
-    number: 2,
-    icon: Chrome,
-    title: 'Extension streams history',
-    body: 'Daily or on-demand, the extension paginates your provider history and streams normalised chunks to your Kyomiru instance.',
-  },
-  {
-    number: 3,
-    icon: ServerCog,
-    title: 'Kyomiru enriches metadata',
-    body: 'Shows are matched to TMDb and AniList in the background. Titles, seasons, and episodes are resolved in your language.',
-  },
-  {
-    number: 4,
-    icon: BrainCircuit,
-    title: 'You get the memory layer',
-    body: 'Shows that aired new episodes while you were away move into New Content. Everything else stays tidy in your library.',
-  },
-]
+const STEP_ICONS: LucideIcon[] = [Tv2, Chrome, ServerCog, BrainCircuit]
+const STEP_NUMBERS = [1, 2, 3, 4]
 
 function ArrowConnector() {
   return (
@@ -46,39 +16,41 @@ function ArrowConnector() {
 }
 
 export function HowItWorks() {
+  const { t } = useTranslation('landing')
   return (
     <section id="how" className="py-20 md:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mb-12 text-center">
-          <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">How it works</h2>
-          <p className="mt-3 text-muted-foreground text-lg">One extension captures your history. One server remembers.</p>
+          <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">{t('how_heading')}</h2>
+          <p className="mt-3 text-muted-foreground text-lg">{t('how_subheading')}</p>
         </div>
 
         <div className="flex flex-col lg:flex-row items-stretch gap-3 lg:gap-0">
-          {STEPS.map((step, idx) => (
-            <Fragment key={step.number}>
-              <Card className="flex-1 border-border/50 bg-card/60 backdrop-blur-sm">
-                <CardContent className="p-6 h-full flex flex-col">
-                  <div className="mb-4 flex items-center gap-3">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary ring-1 ring-primary/30">
-                      {step.number}
-                    </span>
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary/60">
-                      <step.icon className="h-4 w-4 text-muted-foreground" />
+          {STEP_NUMBERS.map((n, idx) => {
+            const Icon = STEP_ICONS[idx]!
+            return (
+              <Fragment key={n}>
+                <Card className="flex-1 border-border/50 bg-card/60 backdrop-blur-sm">
+                  <CardContent className="p-6 h-full flex flex-col">
+                    <div className="mb-4 flex items-center gap-3">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary ring-1 ring-primary/30">
+                        {n}
+                      </span>
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary/60">
+                        <Icon className="h-4 w-4 text-muted-foreground" />
+                      </div>
                     </div>
-                  </div>
-                  <h3 className="mb-2 font-semibold text-foreground">{step.title}</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{step.body}</p>
-                </CardContent>
-              </Card>
-              {idx < STEPS.length - 1 && <ArrowConnector />}
-            </Fragment>
-          ))}
+                    <h3 className="mb-2 font-semibold text-foreground">{t(`how_step${n}_title`)}</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{t(`how_step${n}_body`)}</p>
+                  </CardContent>
+                </Card>
+                {idx < STEP_NUMBERS.length - 1 && <ArrowConnector />}
+              </Fragment>
+            )
+          })}
         </div>
 
-        <p className="mt-8 text-center text-sm text-muted-foreground/70">
-          Provider credentials stay in your browser. Kyomiru servers never talk to Crunchyroll or Netflix directly — that's the whole point.
-        </p>
+        <p className="mt-8 text-center text-sm text-muted-foreground/70">{t('how_footnote')}</p>
       </div>
     </section>
   )

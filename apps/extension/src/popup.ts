@@ -14,6 +14,7 @@ import {
 import { pingKyomiru, KyomiruAuthError } from './sync.js'
 import { allAdapters, adapterForTab } from './providers/index.js'
 import type { ProviderAdapter, SessionStatus } from './providers/types.js'
+import { initLocale, t } from './i18n.js'
 
 function $(id: string): HTMLElement {
   const el = document.getElementById(id)
@@ -25,15 +26,15 @@ function show(el: HTMLElement) { el.classList.remove('hidden') }
 function hide(el: HTMLElement) { el.classList.add('hidden') }
 
 function formatRelative(ts: number | null): string {
-  if (!ts) return 'never'
+  if (!ts) return t('fmt_never')
   const ago = Date.now() - ts
   const min = Math.round(ago / 60_000)
-  if (min < 1) return 'just now'
-  if (min < 60) return `${min}m ago`
+  if (min < 1) return t('fmt_just_now')
+  if (min < 60) return t('fmt_minutes_ago', { n: min })
   const hr = Math.round(min / 60)
-  if (hr < 24) return `${hr}h ago`
+  if (hr < 24) return t('fmt_hours_ago', { n: hr })
   const d = Math.round(hr / 24)
-  return `${d}d ago`
+  return t('fmt_days_ago', { n: d })
 }
 
 function appendLog(target: HTMLElement, line: string) {
@@ -46,6 +47,22 @@ function setDot(el: HTMLElement, state: 'ok' | 'err' | 'warn' | 'unknown') {
   if (state === 'ok') el.classList.add('ok')
   else if (state === 'err') el.classList.add('err')
   else if (state === 'warn') el.classList.add('warn')
+}
+
+function applyStaticChrome() {
+  document.title = t('title')
+  const setText = (id: string, key: Parameters<typeof t>[0]) => {
+    const el = document.getElementById(id)
+    if (el) el.textContent = t(key)
+  }
+  setText('static-title', 'title')
+  setText('revoked-banner', 'banner_revoked')
+  setText('connect-heading', 'connect_heading')
+  setText('label-url', 'label_server_url')
+  setText('label-token', 'label_token')
+  setText('token-hint', 'token_hint')
+  setText('save-btn', 'btn_connect')
+  setText('reconfigure-btn', 'btn_settings')
 }
 
 // ─── Per-provider card ────────────────────────────────────────────────────────
@@ -68,7 +85,7 @@ function buildProviderCard(adapter: ProviderAdapter): {
   dotEl.className = 'dot'
 
   const statusEl = document.createElement('span')
-  statusEl.textContent = `${adapter.displayName} session: unknown`
+  statusEl.textContent = t('status_unknown', { provider: adapter.displayName })
 
   const statusLine = document.createElement('div')
   statusLine.className = 'status-line'
@@ -91,7 +108,7 @@ function buildProviderCard(adapter: ProviderAdapter): {
   const openBtn = document.createElement('button')
   openBtn.type = 'button'
   openBtn.style.cssText = 'margin-top:6px; padding:4px 10px; font-size:12px;'
-  openBtn.textContent = `Open ${adapter.displayName}`
+  openBtn.textContent = t('btn_open_provider', { provider: adapter.displayName })
   ctaEl.appendChild(openBtn)
   card.appendChild(ctaEl)
 
@@ -101,7 +118,7 @@ function buildProviderCard(adapter: ProviderAdapter): {
 
   const syncBtn = document.createElement('button')
   syncBtn.className = 'primary'
-  syncBtn.textContent = 'Sync now'
+  syncBtn.textContent = t('btn_sync_now')
   syncBtns.appendChild(syncBtn)
   card.appendChild(syncBtns)
 
@@ -126,7 +143,6 @@ async function renderProviderCard(
     getCheckpoint(adapter.key),
   ])
 
-  // Session status
   renderSessionStatus(adapter, sessionStatus, dotEl, statusEl, ctaEl, ctaTextEl, openBtn)
 
   const sessionOk = sessionStatus.kind === 'ok'
@@ -134,21 +150,20 @@ async function renderProviderCard(
   const isRunning = syncState.status === 'running'
 
   syncBtn.disabled = isRunning || !sessionOk
-  syncBtn.textContent = isRunning ? 'Syncing…' : 'Sync now'
+  syncBtn.textContent = isRunning ? t('btn_syncing') : t('btn_sync_now')
 
-  // Log
   const lines = [...syncState.log]
   if (syncState.status === 'error' && syncState.error && !syncState.log.includes(`Error: ${syncState.error}`)) {
-    lines.push(`Error: ${syncState.error}`)
+    lines.push(t('ev_error', { message: syncState.error }))
   }
   if (!isRunning && syncState.status === 'idle') {
     if (hasResumableSync && checkpoint) {
-      lines.push(`Sync in progress: ${checkpoint.showDoneIdx}/${checkpoint.showIds.length} shows. Click Sync to resume.`)
+      lines.push(t('sync_in_progress', { done: checkpoint.showDoneIdx, total: checkpoint.showIds.length }))
     } else if (lastSync) {
       lines.push(
         lastSync.ok
-          ? `Last sync: ${formatRelative(lastSync.at)} · ${lastSync.itemsIngested} items (${lastSync.itemsNew} new)`
-          : `Last sync failed: ${lastSync.error ?? 'unknown'}`,
+          ? t('last_sync_summary', { rel: formatRelative(lastSync.at), items: lastSync.itemsIngested, newCount: lastSync.itemsNew })
+          : t('last_sync_failed', { error: lastSync.error ?? 'unknown' }),
       )
     }
   }
@@ -168,26 +183,26 @@ function renderSessionStatus(
   hide(ctaEl)
 
   if (status.kind === 'missing') {
-    statusEl.textContent = `${adapter.displayName} session not captured`
+    statusEl.textContent = t('status_not_captured', { provider: adapter.displayName })
     setDot(dotEl, 'err')
-    ctaTextEl.textContent = `Open ${adapter.displayName} in any tab — your session will be captured automatically.`
-    openBtn.textContent = `Open ${adapter.displayName}`
+    ctaTextEl.textContent = t('open_provider_cta', { provider: adapter.displayName })
+    openBtn.textContent = t('btn_open_provider', { provider: adapter.displayName })
     show(ctaEl)
     return
   }
 
   if (status.kind === 'expired') {
-    statusEl.textContent = `${adapter.displayName} session expired`
+    statusEl.textContent = t('status_expired', { provider: adapter.displayName })
     setDot(dotEl, 'warn')
     ctaTextEl.textContent = status.reason
-    openBtn.textContent = `Open ${adapter.displayName}`
+    openBtn.textContent = t('btn_open_provider', { provider: adapter.displayName })
     show(ctaEl)
     return
   }
 
   statusEl.textContent = status.capturedAt > 0
-    ? `Session captured ${formatRelative(status.capturedAt)}`
-    : 'Session ready'
+    ? t('status_captured', { rel: formatRelative(status.capturedAt) })
+    : t('status_ready')
   setDot(dotEl, 'ok')
 }
 
@@ -202,12 +217,12 @@ async function renderMain(): Promise<void> {
 
   const cfg = await getConfig()
   if (cfg) {
-    $('kyomiru-status').textContent = `Kyomiru · ${cfg.userEmail ?? cfg.kyomiruUrl}`
+    $('kyomiru-status').textContent = t('kyomiru_label', { ident: cfg.userEmail ?? cfg.kyomiruUrl })
     const dot = $('dot-kyomiru')
     dot.classList.remove('ok', 'err', 'warn')
     dot.classList.add(cfg.userEmail ? 'ok' : 'warn')
   } else {
-    $('kyomiru-status').textContent = 'Not connected'
+    $('kyomiru-status').textContent = t('not_connected')
     const dot = $('dot-kyomiru')
     dot.classList.remove('ok', 'warn')
     dot.classList.add('err')
@@ -219,7 +234,6 @@ async function renderMain(): Promise<void> {
 }
 
 async function buildProviderCards(): Promise<void> {
-  // Detect active tab to decide which adapters to emphasize.
   let focusedKey: string | null = null
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
@@ -276,7 +290,7 @@ async function handleSave(): Promise<void> {
   const rawUrl = urlInput.value.trim().replace(/\/$/, '')
   const token = tokenInput.value.trim()
   if (!rawUrl || !token) {
-    appendLog(log, 'Kyomiru URL and token are required.')
+    appendLog(log, t('url_token_required'))
     return
   }
 
@@ -284,7 +298,7 @@ async function handleSave(): Promise<void> {
   try {
     url = new URL(rawUrl)
   } catch {
-    appendLog(log, 'Invalid URL.')
+    appendLog(log, t('invalid_url'))
     return
   }
 
@@ -298,20 +312,22 @@ async function handleSave(): Promise<void> {
     await setConfig({ kyomiruUrl: rawUrl, token })
 
     if (!hasPerm) {
-      appendLog(log, 'Requesting host permission…')
+      appendLog(log, t('requesting_perm'))
       const granted = await chrome.permissions.request({ origins: [originPattern] })
       if (!granted) {
-        appendLog(log, 'Permission denied — cannot reach Kyomiru.')
+        appendLog(log, t('permission_denied'))
         btn.disabled = false
         return
       }
     }
 
-    appendLog(log, 'Verifying token…')
+    appendLog(log, t('verifying_token'))
     const me = await pingKyomiru(rawUrl, token)
-    appendLog(log, `Connected as ${me.displayName} (${me.email})`)
-    await setConfig({ kyomiruUrl: rawUrl, token, userEmail: me.email })
+    if (me.preferredLocale) initLocale(me.preferredLocale)
+    appendLog(log, t('connected_as', { name: me.displayName, email: me.email }))
+    await setConfig({ kyomiruUrl: rawUrl, token, userEmail: me.email, userPreferredLocale: me.preferredLocale })
     await setAuthError(false)
+    applyStaticChrome()
     await buildProviderCards()
     await renderMain()
   } catch (err) {
@@ -325,10 +341,9 @@ async function handleSync(providerKey: string, btn: HTMLButtonElement): Promise<
 
   const resp = await chrome.runtime.sendMessage({ type: 'sync/start', providerKey }).catch(() => null)
   if (!resp?.ok) {
-    // Find the log element for this provider's card and surface the message.
     const card = cardEntries.find((e) => e.adapter.key === providerKey)
     if (card && resp?.reason !== 'already-running') {
-      card.elements.logEl.textContent = 'Could not start sync. Try reopening the popup.'
+      card.elements.logEl.textContent = t('could_not_start')
     }
   }
 
@@ -362,7 +377,9 @@ function wireStorageListener(): void {
 async function verifySavedConfig(cfg: ExtensionConfig): Promise<void> {
   try {
     const me = await pingKyomiru(cfg.kyomiruUrl, cfg.token)
-    await setConfig({ kyomiruUrl: cfg.kyomiruUrl, token: cfg.token, userEmail: me.email })
+    if (me.preferredLocale) initLocale(me.preferredLocale)
+    await setConfig({ kyomiruUrl: cfg.kyomiruUrl, token: cfg.token, userEmail: me.email, userPreferredLocale: me.preferredLocale })
+    applyStaticChrome()
     await renderMain()
   } catch (err) {
     if (err instanceof KyomiruAuthError) {
@@ -375,13 +392,16 @@ async function verifySavedConfig(cfg: ExtensionConfig): Promise<void> {
 }
 
 async function init(): Promise<void> {
+  const cfg = await getConfig()
+  initLocale(cfg?.userPreferredLocale ?? null)
+  applyStaticChrome()
+
   $('save-btn').addEventListener('click', () => { void handleSave() })
   $('reconfigure-btn').addEventListener('click', () => { void handleReconfigure() })
   wireStorageListener()
 
   await buildProviderCards()
 
-  const cfg = await getConfig()
   if (cfg) {
     await renderMain()
     if (!cfg.userEmail) {

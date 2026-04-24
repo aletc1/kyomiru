@@ -1,14 +1,16 @@
 import { ArrowRight, Download, Github, Server } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from './ui/button'
 import { Card, CardContent } from './ui/card'
 
 export function Install() {
+  const { t } = useTranslation('landing')
   return (
     <section id="install" className="py-20 md:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mb-12 text-center">
-          <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Get started</h2>
-          <p className="mt-3 text-muted-foreground text-lg">Join the hosted beta or spin up your own instance.</p>
+          <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">{t('install_heading')}</h2>
+          <p className="mt-3 text-muted-foreground text-lg">{t('install_subheading')}</p>
         </div>
 
         {/* Two main cards */}
@@ -21,20 +23,17 @@ export function Install() {
                   <ArrowRight className="h-5 w-5 text-primary" />
                 </div>
                 <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
-                  Invite-only
+                  {t('install_hosted_badge')}
                 </span>
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">Try the hosted beta</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  Kyomiru's hosted instance is invite-only while we harden the sync pipeline. Request access on GitHub —
-                  or skip the queue entirely and self-host.
-                </p>
+                <h3 className="text-lg font-semibold text-foreground mb-2">{t('install_hosted_title')}</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">{t('install_hosted_body')}</p>
               </div>
               <div className="mt-auto flex flex-wrap gap-2">
                 <Button asChild>
                   <a href="https://kyomiru.app" target="_blank" rel="noopener noreferrer">
-                    Begin
+                    {t('install_hosted_begin')}
                     <ArrowRight className="h-4 w-4" />
                   </a>
                 </Button>
@@ -44,7 +43,7 @@ export function Install() {
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    Request an invite
+                    {t('install_hosted_request')}
                   </a>
                 </Button>
               </div>
@@ -58,17 +57,14 @@ export function Install() {
                 <Server className="h-5 w-5 text-muted-foreground" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">Self-host in 5 minutes</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  Open source under AGPL-3.0. Clone the repo, fill in <code className="rounded bg-secondary px-1 py-0.5 text-xs">.env</code>, and run{' '}
-                  <code className="rounded bg-secondary px-1 py-0.5 text-xs">docker compose up</code>. Multi-arch images on Quay.io. Helm chart available for Kubernetes.
-                </p>
+                <h3 className="text-lg font-semibold text-foreground mb-2">{t('install_selfhost_title')}</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">{t('install_selfhost_body')}</p>
               </div>
               <div className="mt-auto flex flex-wrap gap-2">
                 <Button asChild variant="outline">
                   <a href="https://github.com/aletc1/kyomiru" target="_blank" rel="noopener noreferrer">
                     <Github className="h-4 w-4" />
-                    View on GitHub
+                    {t('install_selfhost_github')}
                   </a>
                 </Button>
                 <Button asChild variant="ghost">
@@ -77,7 +73,7 @@ export function Install() {
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    Helm chart
+                    {t('install_selfhost_helm')}
                   </a>
                 </Button>
               </div>
@@ -89,15 +85,9 @@ export function Install() {
         <div className="mt-8 rounded-xl border border-border/50 bg-card/40 px-6 py-6 md:px-8 backdrop-blur-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h3 className="font-semibold text-foreground">Get the Chrome extension</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                The extension is how your watch history gets in. Grab the latest{' '}
-                <code className="rounded bg-secondary px-1 py-0.5 text-xs">.zip</code> from GitHub Releases and load it unpacked.
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground/60">
-                Not on the Chrome Web Store yet — load via{' '}
-                <code className="rounded bg-secondary px-1 py-0.5 text-xs">chrome://extensions</code> → Developer Mode → Load unpacked.
-              </p>
+              <h3 className="font-semibold text-foreground">{t('install_ext_title')}</h3>
+              <p className="mt-1 text-sm text-muted-foreground">{t('install_ext_body')}</p>
+              <p className="mt-1 text-xs text-muted-foreground/60">{t('install_ext_hint')}</p>
             </div>
             <div className="shrink-0">
               <Button asChild size="lg">
@@ -107,7 +97,7 @@ export function Install() {
                   rel="noopener noreferrer"
                 >
                   <Download className="h-4 w-4" />
-                  Download extension
+                  {t('install_ext_download')}
                 </a>
               </Button>
             </div>

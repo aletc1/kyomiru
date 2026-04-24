@@ -3,6 +3,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { z } from 'zod'
 import { Search, LayoutGrid, List } from 'lucide-react'
 import { useState, useCallback, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { Q } from '@/lib/queryKeys'
 import { useAppStore, LIBRARY_STATUS_VALUES, LIBRARY_SORT_VALUES, LIBRARY_KIND_VALUES, DEFAULT_LIBRARY_SORT } from '@/lib/store'
@@ -30,6 +31,7 @@ export const Route = createFileRoute('/library')({
 })
 
 function LibraryPage() {
+  const { t } = useTranslation('library')
   const search = Route.useSearch()
   const navigate = useNavigate({ from: '/library' })
   const {
@@ -45,8 +47,6 @@ function LibraryPage() {
   const provider = search.provider ?? libraryProvider
   const q = search.q
 
-  // Hydrate missing URL params from store so the URL stays a canonical
-  // reflection of active filters (each param independently).
   useEffect(() => {
     const patch: Record<string, string | undefined> = {}
     if (search.status === undefined && libraryStatus !== undefined) patch.status = libraryStatus
@@ -121,10 +121,6 @@ function LibraryPage() {
   const facetProviders = facetsData?.providers ?? []
   const facetKinds = facetsData?.kinds ?? []
 
-  // Show the dropdowns whenever the user has multiple options OR an active
-  // filter that isn't in the facets list — otherwise a stale persisted value
-  // (e.g. provider=netflix after disconnecting Netflix) would hide the only
-  // control that could clear it.
   const showKindFilter = facetKinds.length > 1 || (kind !== undefined && !facetKinds.includes(kind))
   const kindOptions = facetKinds.includes(kind as never) || kind === undefined
     ? facetKinds
@@ -134,6 +130,13 @@ function LibraryPage() {
     ? facetProviders
     : [...facetProviders, { key: provider, displayName: provider }]
 
+  const kindLabel = (k: string) => {
+    if (k === 'anime') return t('kind_anime')
+    if (k === 'tv') return t('kind_tv')
+    if (k === 'movie') return t('kind_movie')
+    return k
+  }
+
   return (
     <div className="space-y-4">
       {/* Top bar */}
@@ -142,7 +145,7 @@ function LibraryPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Search shows..."
+            placeholder={t('search_placeholder')}
             value={searchInput}
             onChange={(e) => handleSearch(e.target.value)}
           />
@@ -151,33 +154,31 @@ function LibraryPage() {
           variant="outline"
           size="icon"
           onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
-          aria-label="Toggle view"
+          aria-label={t('toggle_view')}
         >
           {viewMode === 'grid' ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
         </Button>
         <Select value={sort} onValueChange={handleSortChange}>
           <SelectTrigger className="w-48">
-            <SelectValue placeholder="Sort by" />
+            <SelectValue placeholder={t('sort_by')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="recent_activity">Recent Activity</SelectItem>
-            <SelectItem value="title_asc">Title A-Z</SelectItem>
-            <SelectItem value="rating">Rating</SelectItem>
-            <SelectItem value="last_watched">Recently Watched</SelectItem>
-            <SelectItem value="latest_air_date">Latest Air Date</SelectItem>
+            <SelectItem value="recent_activity">{t('sort_recent_activity')}</SelectItem>
+            <SelectItem value="title_asc">{t('sort_title_asc')}</SelectItem>
+            <SelectItem value="rating">{t('sort_rating')}</SelectItem>
+            <SelectItem value="last_watched">{t('sort_last_watched')}</SelectItem>
+            <SelectItem value="latest_air_date">{t('sort_latest_air_date')}</SelectItem>
           </SelectContent>
         </Select>
         {showKindFilter && (
           <Select value={kind ?? 'all'} onValueChange={handleKindChange}>
             <SelectTrigger className="w-32">
-              <SelectValue placeholder="Type" />
+              <SelectValue placeholder={t('filter_type')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
+              <SelectItem value="all">{t('filter_all_types')}</SelectItem>
               {kindOptions.map((k) => (
-                <SelectItem key={k} value={k}>
-                  {k === 'anime' ? 'Anime' : k === 'tv' ? 'TV' : 'Movie'}
-                </SelectItem>
+                <SelectItem key={k} value={k}>{kindLabel(k)}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -185,10 +186,10 @@ function LibraryPage() {
         {showProviderFilter && (
           <Select value={provider ?? 'all'} onValueChange={handleProviderChange}>
             <SelectTrigger className="w-40">
-              <SelectValue placeholder="Provider" />
+              <SelectValue placeholder={t('filter_provider')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All providers</SelectItem>
+              <SelectItem value="all">{t('filter_all_providers')}</SelectItem>
               {providerOptions.map((p) => (
                 <SelectItem key={p.key} value={p.key}>{p.displayName}</SelectItem>
               ))}
@@ -200,13 +201,13 @@ function LibraryPage() {
       {/* Tabs */}
       <Tabs value={status ?? 'all'} onValueChange={handleStatusChange}>
         <TabsList className="w-full justify-start overflow-x-auto">
-          <TabsTrigger value="all">All</TabsTrigger>
-          <TabsTrigger value="in_progress">In Progress</TabsTrigger>
+          <TabsTrigger value="all">{t('tab_all')}</TabsTrigger>
+          <TabsTrigger value="in_progress">{t('tab_in_progress')}</TabsTrigger>
           <TabsTrigger value="new_content" className="gap-1">
-            New Content {(countData?.count ?? 0) > 0 && <Badge className="h-5 px-1.5 text-xs">{countData?.count}</Badge>}
+            {t('tab_new_content')} {(countData?.count ?? 0) > 0 && <Badge className="h-5 px-1.5 text-xs">{countData?.count}</Badge>}
           </TabsTrigger>
-          <TabsTrigger value="watched">Watched</TabsTrigger>
-          <TabsTrigger value="removed">Removed</TabsTrigger>
+          <TabsTrigger value="watched">{t('tab_watched')}</TabsTrigger>
+          <TabsTrigger value="removed">{t('tab_removed')}</TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -220,8 +221,8 @@ function LibraryPage() {
       ) : allItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-center gap-4">
           <span className="text-6xl">📺</span>
-          <p className="text-xl font-semibold">No shows yet</p>
-          <p className="text-muted-foreground">Connect a service and sync to see your library.</p>
+          <p className="text-xl font-semibold">{t('empty_title')}</p>
+          <p className="text-muted-foreground">{t('empty_body')}</p>
         </div>
       ) : (
         <>
@@ -230,7 +231,7 @@ function LibraryPage() {
           </div>
           {hasNextPage && (
             <div className="flex justify-center pt-4">
-              <Button variant="outline" onClick={() => fetchNextPage()}>Load more</Button>
+              <Button variant="outline" onClick={() => fetchNextPage()}>{t('common:load_more')}</Button>
             </div>
           )}
         </>

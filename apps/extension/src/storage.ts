@@ -4,6 +4,7 @@ export interface ExtensionConfig {
   kyomiruUrl: string
   token: string
   userEmail?: string
+  userPreferredLocale?: string | null
 }
 
 // ─── Per-provider session types ───────────────────────────────────────────────

@@ -1,0 +1,21 @@
+{
+  "kind_anime": "Anime",
+  "kind_tv": "TV",
+  "kind_movie": "Película",
+  "kind_auto": "(auto)",
+  "kind_reset_auto": "Restablecer a auto",
+  "not_found": "Show no encontrado.",
+  "latest_episode": "Último episodio:",
+  "tmdb_rating": "TMDB {{value}}",
+  "add_to_queue": "Añadir a la cola",
+  "remove_from_queue": "Quitar de la cola",
+  "restore": "Restaurar",
+  "remove": "Eliminar",
+  "remove_dialog_title": "¿Eliminar show?",
+  "remove_dialog_desc": "{{title}} se ocultará de todas las vistas. Puedes restaurarlo en cualquier momento desde la pestaña Eliminado.",
+  "episodes_watched": "{{watched}}/{{total}} episodios vistos",
+  "season_label": "Temporada {{n}}",
+  "episode_label": "Episodio {{n}}",
+  "mark_viewed": "Marcar como visto",
+  "mark_not_viewed": "Marcar como no visto"
+}

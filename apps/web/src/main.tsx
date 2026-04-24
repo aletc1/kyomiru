@@ -1,9 +1,10 @@
-import React from 'react'
+import React, { Suspense } from 'react'
 import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider, createRouter } from '@tanstack/react-router'
 import { Toaster } from 'sonner'
 import '@/styles/globals.css'
+import './i18n'
 import { routeTree } from './routeTree.gen'
 
 const queryClient = new QueryClient({
@@ -18,9 +19,11 @@ declare module '@tanstack/react-router' {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-      <Toaster richColors position="bottom-right" />
-    </QueryClientProvider>
+    <Suspense>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+        <Toaster richColors position="bottom-right" />
+      </QueryClientProvider>
+    </Suspense>
   </React.StrictMode>,
 )

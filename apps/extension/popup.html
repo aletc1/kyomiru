@@ -125,22 +125,22 @@
   </style>
 </head>
 <body>
-  <h1>Kyomiru Sync</h1>
+  <h1 id="static-title">Kyomiru Sync</h1>
 
   <!-- Configuration view -->
   <section id="setup" class="hidden">
     <div id="revoked-banner" class="banner warn hidden">
       This device was revoked. Create a new extension token in Kyomiru → Settings → Devices and paste it below.
     </div>
-    <p class="muted">Connect this extension to your Kyomiru instance.</p>
+    <p id="connect-heading" class="muted">Connect this extension to your Kyomiru instance.</p>
     <div class="row">
-      <label for="kyomiru-url">Kyomiru URL</label>
+      <label id="label-url" for="kyomiru-url">Kyomiru URL</label>
       <input id="kyomiru-url" type="url" placeholder="http://localhost:3000" />
     </div>
     <div class="row">
-      <label for="kyomiru-token">Extension token</label>
+      <label id="label-token" for="kyomiru-token">Extension token</label>
       <input id="kyomiru-token" type="password" placeholder="kym_ext_…" />
-      <span class="muted">
+      <span id="token-hint" class="muted">
         Create one in Kyomiru → Settings → Extension tokens.
       </span>
     </div>

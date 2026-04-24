@@ -1,4 +1,5 @@
 import { Plus } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Card, CardContent } from './ui/card'
 
 function ProviderCard({ src, name, note, href }: { src: string; name: string; note: string; href: string }) {
@@ -15,6 +16,7 @@ function ProviderCard({ src, name, note, href }: { src: string; name: string; no
 }
 
 function GhostCard() {
+  const { t } = useTranslation('landing')
   return (
     <a
       href="https://github.com/aletc1/kyomiru/issues/new?labels=provider-request&title=Provider+request%3A+%5Bservice+name%5D"
@@ -28,8 +30,8 @@ function GhostCard() {
             <Plus className="h-4 w-4 text-muted-foreground" />
           </div>
           <div className="text-center">
-            <div className="text-sm font-medium text-muted-foreground">Suggest a provider</div>
-            <div className="mt-0.5 text-xs text-muted-foreground/60">Open a GitHub issue</div>
+            <div className="text-sm font-medium text-muted-foreground">{t('providers_suggest')}</div>
+            <div className="mt-0.5 text-xs text-muted-foreground/60">{t('providers_suggest_sub')}</div>
           </div>
         </CardContent>
       </Card>
@@ -38,35 +40,32 @@ function GhostCard() {
 }
 
 export function Providers() {
+  const { t } = useTranslation('landing')
   return (
     <section id="providers" className="py-20 md:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mb-12 text-center">
-          <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Supported providers</h2>
-          <p className="mt-3 text-muted-foreground text-lg">
-            Kyomiru is provider-pluggable — more coming soon.
-          </p>
+          <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">{t('providers_heading')}</h2>
+          <p className="mt-3 text-muted-foreground text-lg">{t('providers_subheading')}</p>
         </div>
 
         <div className="flex flex-wrap justify-center gap-4">
           <ProviderCard
             src="/providers/crunchyroll.png"
             name="Crunchyroll"
-            note="Browser session capture"
+            note={t('providers_browser_session')}
             href="https://www.crunchyroll.com"
           />
           <ProviderCard
             src="/providers/netflix.svg"
             name="Netflix"
-            note="Browser session capture"
+            note={t('providers_browser_session')}
             href="https://www.netflix.com"
           />
           <GhostCard />
         </div>
 
-        <p className="mt-8 text-center text-xs text-muted-foreground/50">
-          Kyomiru is not affiliated with Crunchyroll or Netflix. All trademarks belong to their respective owners.
-        </p>
+        <p className="mt-8 text-center text-xs text-muted-foreground/50">{t('providers_disclaimer')}</p>
       </div>
     </section>
   )

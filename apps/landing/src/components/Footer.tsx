@@ -1,6 +1,8 @@
 import { Github } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 
 export function Footer() {
+  const { t } = useTranslation('landing')
   return (
     <footer className="border-t border-border/40">
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
@@ -20,7 +22,7 @@ export function Footer() {
               className="flex items-center gap-1.5 transition-colors hover:text-foreground"
             >
               <Github className="h-4 w-4" />
-              GitHub
+              {t('footer_github')}
             </a>
             <a
               href="https://github.com/aletc1/kyomiru/blob/main/LICENSE"
@@ -28,7 +30,7 @@ export function Footer() {
               rel="noopener noreferrer"
               className="transition-colors hover:text-foreground"
             >
-              AGPL-3.0
+              {t('footer_license')}
             </a>
             <a
               href="https://github.com/aletc1/kyomiru/releases/latest"
@@ -36,18 +38,16 @@ export function Footer() {
               rel="noopener noreferrer"
               className="transition-colors hover:text-foreground"
             >
-              Releases
+              {t('footer_releases')}
             </a>
           </div>
         </div>
 
         <div className="mt-6 border-t border-border/40 pt-6 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-muted-foreground/60">
-            © {new Date().getFullYear()} Kyomiru contributors. Open source under AGPL-3.0.
+            {t('footer_copyright', { year: new Date().getFullYear() })}
           </p>
-          <p className="text-xs text-muted-foreground/40">
-            Not affiliated with Crunchyroll or Netflix. All trademarks belong to their respective owners.
-          </p>
+          <p className="text-xs text-muted-foreground/40">{t('footer_trademark')}</p>
         </div>
       </div>
     </footer>

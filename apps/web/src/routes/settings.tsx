@@ -2,9 +2,11 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { Q } from '@/lib/queryKeys'
 import { formatRelative } from '@/lib/utils'
+import { loadLocale } from '@/i18n'
 import type { User } from '@kyomiru/shared/contracts/auth'
 import type { ExtensionToken } from '@kyomiru/shared/contracts/ingest'
 import { PROVIDER_META } from '@/lib/providers'
@@ -20,21 +22,16 @@ import {
 } from '@/components/ui/select'
 import { Copy, Trash2, Plus } from 'lucide-react'
 import { useExtensionTokens } from '@/hooks/useExtensionTokens'
+import i18n from '@/i18n'
 
 const AUTO_LOCALE = 'auto'
-const LOCALE_OPTIONS = [
-  { value: AUTO_LOCALE, label: 'Auto (browser language)' },
-  { value: 'en-US', label: 'English' },
-  { value: 'ja-JP', label: 'Japanese (日本語)' },
-  { value: 'es-ES', label: 'Spanish (Español)' },
-  { value: 'fr-FR', label: 'French (Français)' },
-]
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
 })
 
 function SettingsPage() {
+  const { t } = useTranslation('settings')
   const { data: user } = useQuery<User>({ queryKey: Q.me, queryFn: () => api.get<User>('/me') })
 
   const logout = async () => {
@@ -44,14 +41,14 @@ function SettingsPage() {
 
   return (
     <div className="max-w-lg space-y-4">
-      <h1 className="text-2xl font-bold">Settings</h1>
+      <h1 className="text-2xl font-bold">{t('title')}</h1>
       {user && (
         <Card>
-          <CardHeader><CardTitle>Account</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{t('account_title')}</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             <p className="text-sm font-medium">{user.displayName}</p>
             <p className="text-sm text-muted-foreground">{user.email}</p>
-            <Button variant="outline" onClick={logout} className="mt-4">Sign out</Button>
+            <Button variant="outline" onClick={logout} className="mt-4">{t('sign_out')}</Button>
           </CardContent>
         </Card>
       )}
@@ -62,26 +59,37 @@ function SettingsPage() {
 }
 
 function LanguageCard({ user }: { user: User }) {
+  const { t } = useTranslation('settings')
   const queryClient = useQueryClient()
+
+  const LOCALE_OPTIONS = [
+    { value: AUTO_LOCALE, label: t('locale_auto') },
+    { value: 'en-US', label: t('locale_en') },
+    { value: 'ja-JP', label: t('locale_ja') },
+    { value: 'es-ES', label: t('locale_es') },
+    { value: 'fr-FR', label: t('locale_fr') },
+  ]
+
   const setLocale = useMutation({
     mutationFn: (locale: string | null) => api.patch('/me', { preferredLocale: locale }),
-    onSuccess: () => {
+    onSuccess: async (_, locale) => {
       queryClient.invalidateQueries({ queryKey: Q.me })
       queryClient.invalidateQueries({ queryKey: Q.library({}) })
       queryClient.invalidateQueries({ queryKey: ['show'] })
-      toast.success('Language updated')
+      if (locale && locale !== 'ja-JP') {
+        await loadLocale(locale)
+      }
+      toast.success(t('language_updated'))
     },
     onError: (err) => toast.error(err.message),
   })
 
   return (
     <Card>
-      <CardHeader><CardTitle>Content Language</CardTitle></CardHeader>
+      <CardHeader><CardTitle>{t('language_title')}</CardTitle></CardHeader>
       <CardContent className="space-y-2">
-        <p className="text-xs text-muted-foreground">
-          Show and episode titles will be displayed in this language where available.
-        </p>
-        <Label htmlFor="locale-select">Preferred language</Label>
+        <p className="text-xs text-muted-foreground">{t('language_desc')}</p>
+        <Label htmlFor="locale-select">{t('preferred_language')}</Label>
         <Select
           value={user.preferredLocale ?? AUTO_LOCALE}
           onValueChange={(v) => setLocale.mutate(v === AUTO_LOCALE ? null : v)}
@@ -111,7 +119,7 @@ function SyncSummary({ syncsByProvider }: { syncsByProvider?: Record<string, str
         return (
           <span key={key}>
             {i > 0 && ' · '}
-            {name} {formatRelative(ts) ?? 'never'}
+            {name} {formatRelative(ts, i18n.language) ?? 'never'}
           </span>
         )
       })}
@@ -120,13 +128,14 @@ function SyncSummary({ syncsByProvider }: { syncsByProvider?: Record<string, str
 }
 
 function DevicesCard() {
+  const { t } = useTranslation('settings')
   const [label, setLabel] = useState('')
   const { tokens, isLoading, create, revoke, justCreated, clearJustCreated } = useExtensionTokens()
 
   const copyToken = async () => {
     if (!justCreated) return
     await navigator.clipboard.writeText(justCreated.token)
-    toast.success('Token copied to clipboard')
+    toast.success(t('token_copied'))
   }
 
   return (
@@ -134,19 +143,17 @@ function DevicesCard() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle>Devices</CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">
-              Each device running the Kyomiru Chrome extension needs its own token.
-            </p>
+            <CardTitle>{t('devices_title')}</CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">{t('devices_desc')}</p>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="token-label">Add a device</Label>
+            <Label htmlFor="token-label">{t('add_device')}</Label>
             <div className="flex gap-2">
               <Input
                 id="token-label"
-                placeholder="e.g. Personal laptop"
+                placeholder={t('device_placeholder')}
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
                 maxLength={64}
@@ -156,7 +163,7 @@ function DevicesCard() {
                 disabled={!label.trim() || create.isPending}
               >
                 <Plus className="h-4 w-4 mr-1" />
-                {create.isPending ? 'Creating…' : 'Create'}
+                {create.isPending ? t('creating') : t('create')}
               </Button>
             </div>
           </div>
@@ -165,27 +172,29 @@ function DevicesCard() {
             {isLoading ? (
               <div className="h-16 rounded bg-muted animate-pulse" />
             ) : (tokens ?? []).length === 0 ? (
-              <p className="text-xs text-muted-foreground">No devices yet.</p>
+              <p className="text-xs text-muted-foreground">{t('no_devices')}</p>
             ) : (
-              (tokens ?? []).map((t: ExtensionToken) => (
+              (tokens ?? []).map((tok: ExtensionToken) => (
                 <div
-                  key={t.id}
+                  key={tok.id}
                   className="flex items-center gap-2 rounded-md border bg-card/50 px-3 py-2"
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{t.label}</p>
+                    <p className="text-sm font-medium truncate">{tok.label}</p>
                     <p className="text-xs text-muted-foreground">
-                      Added {new Date(t.createdAt).toLocaleDateString()}
-                      {t.lastUsedAt ? ` · last seen ${formatRelative(t.lastUsedAt) ?? 'just now'}` : ' · never connected'}
+                      {t('added_date', { date: new Date(tok.createdAt).toLocaleDateString() })}
+                      {tok.lastUsedAt
+                        ? t('last_seen', { when: formatRelative(tok.lastUsedAt, i18n.language) ?? 'just now' })
+                        : t('never_connected')}
                     </p>
-                    {t.syncsByProvider && <SyncSummary syncsByProvider={t.syncsByProvider} />}
+                    {tok.syncsByProvider && <SyncSummary syncsByProvider={tok.syncsByProvider} />}
                   </div>
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => revoke.mutate(t.id)}
+                    onClick={() => revoke.mutate(tok.id)}
                     disabled={revoke.isPending}
-                    aria-label="Revoke device"
+                    aria-label={t('revoke_device')}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -199,10 +208,8 @@ function DevicesCard() {
       <Dialog open={justCreated !== null} onOpenChange={(open) => !open && clearJustCreated()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Your new extension token</DialogTitle>
-            <DialogDescription>
-              Copy this now — you won't be able to see it again. Paste it into the Kyomiru Chrome extension.
-            </DialogDescription>
+            <DialogTitle>{t('new_token_title')}</DialogTitle>
+            <DialogDescription>{t('new_token_desc')}</DialogDescription>
           </DialogHeader>
           {justCreated && (
             <div className="space-y-3">
@@ -210,7 +217,7 @@ function DevicesCard() {
                 {justCreated.token}
               </div>
               <Button onClick={copyToken} className="w-full">
-                <Copy className="h-4 w-4 mr-2" /> Copy to clipboard
+                <Copy className="h-4 w-4 mr-2" /> {t('copy_to_clipboard')}
               </Button>
             </div>
           )}

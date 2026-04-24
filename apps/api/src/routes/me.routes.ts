@@ -2,12 +2,12 @@ import type { FastifyInstance } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { users } from '@kyomiru/db/schema'
+import { SUPPORTED_UI_LOCALES } from '@kyomiru/shared'
+
+const ALLOWED_LOCALES = [...SUPPORTED_UI_LOCALES, 'ja-JP'] as const
 
 const PatchMeBodySchema = z.object({
-  preferredLocale: z
-    .string()
-    .regex(/^[a-z]{2}(-[A-Z]{2})?$/, 'Expected a BCP-47 locale like "en" or "en-US"')
-    .nullable(),
+  preferredLocale: z.enum(ALLOWED_LOCALES).nullable(),
 }).strict()
 
 export async function meRoutes(app: FastifyInstance) {

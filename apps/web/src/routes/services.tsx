@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { Q } from '@/lib/queryKeys'
 import { formatRelative } from '@/lib/utils'
@@ -9,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CheckCircle2, XCircle, AlertCircle, Clock } from 'lucide-react'
+import i18n from '@/i18n'
 
 export const Route = createFileRoute('/services')({
   component: ServicesPage,
@@ -22,10 +24,13 @@ function StatusIcon({ status, pairingState }: { status: ServiceInfo['status']; p
 }
 
 function ServicesPage() {
+  const { t } = useTranslation('services')
   const { data: services, isLoading } = useQuery<ServiceInfo[]>({
     queryKey: Q.services,
     queryFn: () => api.get<ServiceInfo[]>('/services'),
   })
+
+  const tagline = (key: string) => t(`provider_tagline_${key}`, { defaultValue: PROVIDER_META[key]?.tagline ?? '' })
 
   if (isLoading) {
     return (
@@ -38,12 +43,12 @@ function ServicesPage() {
   return (
     <div className="max-w-2xl space-y-4">
       <div>
-        <h1 className="text-2xl font-bold">Services</h1>
-        <p className="text-sm text-muted-foreground">Connect streaming services to sync your watch history.</p>
+        <h1 className="text-2xl font-bold">{t('title')}</h1>
+        <p className="text-sm text-muted-foreground">{t('subtitle')}</p>
       </div>
       {(services ?? []).map((svc) => {
         const meta = PROVIDER_META[svc.providerKey] ?? { tagline: '', connectionKind: 'bearer' as const, siteUrl: '', siteLabel: '' }
-        const lastSync = formatRelative(svc.lastSyncAt)
+        const lastSync = formatRelative(svc.lastSyncAt, i18n.language)
         return (
           <Card key={svc.providerKey}>
             <CardHeader className="flex flex-row items-center gap-3 pb-2">
@@ -51,14 +56,14 @@ function ServicesPage() {
               <div className="flex-1">
                 <CardTitle className="text-lg">{svc.displayName}</CardTitle>
                 {meta.tagline && (
-                  <p className="text-xs text-muted-foreground mt-0.5">{meta.tagline}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{tagline(svc.providerKey)}</p>
                 )}
               </div>
               <Badge variant={svc.status === 'connected' ? 'default' : 'secondary'}>
                 {svc.status === 'connected'
-                  ? 'connected'
+                  ? t('badge_connected')
                   : svc.pairingState === 'pending'
-                    ? 'waiting for sync'
+                    ? t('badge_waiting')
                     : svc.status}
               </Badge>
             </CardHeader>
@@ -67,31 +72,31 @@ function ServicesPage() {
                 <div className="space-y-1 text-xs text-muted-foreground">
                   {lastSync ? (
                     <p>
-                      Last sync: <span className="text-foreground">{lastSync}</span>
+                      {t('last_sync', { when: lastSync })}
                       {svc.lastSyncAt && (
                         <span className="ml-1 opacity-60">({new Date(svc.lastSyncAt).toLocaleString()})</span>
                       )}
                     </p>
                   ) : (
-                    <p>Connected, but no sync has run yet.</p>
+                    <p>{t('no_sync_yet')}</p>
                   )}
                   {svc.lastError && <p className="text-destructive">{svc.lastError}</p>}
                 </div>
               ) : (
                 <div className="space-y-1 text-xs text-muted-foreground">
                   {svc.pairingState === 'pending' ? (
-                    <p>Device paired — open the extension and click <strong>Sync now</strong>.</p>
+                    <p>{t('pending_device')}</p>
                   ) : meta.connectionKind === 'extension' ? (
-                    <p>Not connected. Install the extension and create a device token to get started.</p>
+                    <p>{t('not_connected_extension')}</p>
                   ) : (
-                    <p>Not connected. Paste a bearer token from the provider's website to connect.</p>
+                    <p>{t('not_connected_bearer')}</p>
                   )}
                   {svc.lastError && <p className="text-destructive">{svc.lastError}</p>}
                 </div>
               )}
               <Button variant={svc.status === 'connected' ? 'outline' : 'default'} size="sm" asChild>
                 <Link to="/services/$providerKey" params={{ providerKey: svc.providerKey }}>
-                  {svc.status === 'connected' ? 'Manage' : svc.pairingState === 'pending' ? 'View' : 'Connect'}
+                  {svc.status === 'connected' ? t('manage') : svc.pairingState === 'pending' ? t('view') : t('connect')}
                 </Link>
               </Button>
             </CardContent>

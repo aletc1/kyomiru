@@ -118,7 +118,7 @@ describe('pingKyomiru', () => {
       }),
     ))
     await expect(pingKyomiru('http://localhost:3000', 'ok')).resolves.toEqual({
-      id: '1', email: 'a@b', displayName: 'A',
+      id: '1', email: 'a@b', displayName: 'A', preferredLocale: null,
     })
   })
 })

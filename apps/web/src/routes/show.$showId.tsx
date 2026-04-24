@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { ArrowLeft, Heart, HeartOff, Trash2, RotateCcw, CheckCheck } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -16,8 +17,8 @@ import { ProviderLinkButton } from '@/components/ProviderLinkButton'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import i18n from '@/i18n'
 
-const KIND_LABELS: Record<string, string> = { anime: 'Anime', tv: 'TV', movie: 'Movie' }
 const KIND_OPTIONS = ['anime', 'tv', 'movie'] as const
 
 export const Route = createFileRoute('/show/$showId')({
@@ -25,6 +26,7 @@ export const Route = createFileRoute('/show/$showId')({
 })
 
 function ShowDetailPage() {
+  const { t } = useTranslation('show')
   const { showId } = Route.useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -56,16 +58,23 @@ function ShowDetailPage() {
   })
 
   if (isLoading) return <ShowDetailSkeleton />
-  if (!show) return <div className="py-24 text-center text-muted-foreground">Show not found.</div>
+  if (!show) return <div className="py-24 text-center text-muted-foreground">{t('not_found')}</div>
 
   const isFavorited = !!show.favoritedAt
   const isRemoved = show.status === 'removed'
   const isWatched = show.status === 'watched'
 
+  const kindLabel = (k: string) => {
+    if (k === 'anime') return t('kind_anime')
+    if (k === 'tv') return t('kind_tv')
+    if (k === 'movie') return t('kind_movie')
+    return k
+  }
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <Button variant="ghost" size="sm" onClick={() => navigate({ to: '/library' })}>
-        <ArrowLeft className="h-4 w-4 mr-2" /> Back
+        <ArrowLeft className="h-4 w-4 mr-2" /> {t('common:back')}
       </Button>
 
       <div className="flex gap-6">
@@ -85,7 +94,7 @@ function ShowDetailPage() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="secondary" size="sm" className="h-6 px-2 text-xs font-medium rounded-full">
-                  {KIND_LABELS[show.kind] ?? show.kind}
+                  {kindLabel(show.kind)}
                   {show.kindOverride && <span className="ml-1 opacity-60">*</span>}
                 </Button>
               </DropdownMenuTrigger>
@@ -96,13 +105,13 @@ function ShowDetailPage() {
                     onClick={() => patch.mutate({ kindOverride: k === show.kind && !show.kindOverride ? null : k })}
                     className={show.kind === k ? 'font-medium' : ''}
                   >
-                    {KIND_LABELS[k]}
-                    {show.kind === k && !show.kindOverride && ' (auto)'}
+                    {kindLabel(k)}
+                    {show.kind === k && !show.kindOverride && ` ${t('kind_auto')}`}
                   </DropdownMenuItem>
                 ))}
                 {show.kindOverride && (
                   <DropdownMenuItem onClick={() => patch.mutate({ kindOverride: null })}>
-                    Reset to auto
+                    {t('kind_reset_auto')}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -117,7 +126,7 @@ function ShowDetailPage() {
             </div>
           )}
           {show.latestAirDate && (
-            <p className="text-sm text-muted-foreground">Latest episode: {show.latestAirDate}</p>
+            <p className="text-sm text-muted-foreground">{t('latest_episode')} {show.latestAirDate}</p>
           )}
           <div className="flex items-center gap-3">
             <RatingStars
@@ -126,7 +135,7 @@ function ShowDetailPage() {
             />
             {show.communityRating !== null && (
               <span className="text-xs text-muted-foreground tabular-nums">
-                TMDB {show.communityRating.toFixed(1)}
+                {t('tmdb_rating', { value: show.communityRating.toFixed(1) })}
               </span>
             )}
           </div>
@@ -139,30 +148,32 @@ function ShowDetailPage() {
                 onClick={() => patch.mutate({ favorited: !isFavorited })}
                 disabled={patch.isPending || isRemoved}
               >
-                {isFavorited ? <><HeartOff className="h-4 w-4 mr-1.5" />Remove from Queue</> : <><Heart className="h-4 w-4 mr-1.5" />Add to Queue</>}
+                {isFavorited
+                  ? <><HeartOff className="h-4 w-4 mr-1.5" />{t('remove_from_queue')}</>
+                  : <><Heart className="h-4 w-4 mr-1.5" />{t('add_to_queue')}</>}
               </Button>
             )}
             <ProviderLinkButton providers={show.providers} kind="show" size="sm" showLabel />
             {isRemoved ? (
               <Button variant="outline" size="sm" onClick={() => patch.mutate({ status: 'restore' })} disabled={patch.isPending}>
-                <RotateCcw className="h-4 w-4 mr-1.5" /> Restore
+                <RotateCcw className="h-4 w-4 mr-1.5" /> {t('restore')}
               </Button>
             ) : (
               <Dialog>
                 <DialogTrigger asChild>
                   <Button variant="outline" size="sm" disabled={patch.isPending}>
-                    <Trash2 className="h-4 w-4 mr-1.5" /> Remove
+                    <Trash2 className="h-4 w-4 mr-1.5" /> {t('remove')}
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>Remove show?</DialogTitle>
+                    <DialogTitle>{t('remove_dialog_title')}</DialogTitle>
                     <DialogDescription>
-                      {show.canonicalTitle} will be hidden from all views. You can restore it anytime from the Removed tab.
+                      {t('remove_dialog_desc', { title: show.canonicalTitle })}
                     </DialogDescription>
                   </DialogHeader>
                   <div className="flex gap-3 justify-end">
-                    <Button variant="destructive" onClick={() => patch.mutate({ status: 'removed' })}>Remove</Button>
+                    <Button variant="destructive" onClick={() => patch.mutate({ status: 'removed' })}>{t('remove')}</Button>
                   </div>
                 </DialogContent>
               </Dialog>
@@ -179,7 +190,7 @@ function ShowDetailPage() {
       {show.totalEpisodes > 0 && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <CheckCheck className="h-4 w-4" />
-          {show.watchedEpisodes}/{show.totalEpisodes} episodes watched
+          {t('episodes_watched', { watched: show.watchedEpisodes, total: show.totalEpisodes })}
         </div>
       )}
 
@@ -190,8 +201,8 @@ function ShowDetailPage() {
             <AccordionItem key={season.id} value={season.id}>
               <AccordionTrigger>
                 <span className="flex items-center gap-3">
-                  Season {season.seasonNumber}
-                  {season.title && season.title !== `Season ${season.seasonNumber}` && (
+                  {t('season_label', { n: season.seasonNumber })}
+                  {season.title && season.title !== t('season_label', { n: season.seasonNumber }) && season.title !== `Season ${season.seasonNumber}` && (
                     <span className="font-normal text-muted-foreground">— {season.title}</span>
                   )}
                   <Badge variant="secondary" className="ml-2 text-xs">
@@ -207,20 +218,20 @@ function ShowDetailPage() {
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 shrink-0"
-                        aria-label={ep.watched ? 'Mark as not viewed' : 'Mark as viewed'}
+                        aria-label={ep.watched ? t('mark_not_viewed') : t('mark_viewed')}
                         disabled={toggleEpisode.isPending}
                         onClick={() => toggleEpisode.mutate({ episodeId: ep.id, watched: !ep.watched })}
                       >
                         <CheckCheck className={`h-4 w-4 ${ep.watched ? 'text-primary' : 'text-muted-foreground/30'}`} />
                       </Button>
                       <span className="text-muted-foreground w-8 shrink-0">{ep.episodeNumber}.</span>
-                      <span className="flex-1 truncate">{ep.title ?? `Episode ${ep.episodeNumber}`}</span>
+                      <span className="flex-1 truncate">{ep.title ?? t('episode_label', { n: ep.episodeNumber })}</span>
                       {ep.watchedAt && (
                         <span
                           className="text-xs text-muted-foreground shrink-0 tabular-nums hidden sm:inline"
                           title={new Date(ep.watchedAt).toLocaleString()}
                         >
-                          {formatRelative(ep.watchedAt)}
+                          {formatRelative(ep.watchedAt, i18n.language)}
                         </span>
                       )}
                       {ep.durationSeconds && (

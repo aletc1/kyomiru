@@ -19,6 +19,7 @@ import {
 } from './storage.js'
 import { adapters } from './providers/index.js'
 import type { CheckpointItem } from './providers/types.js'
+import { t } from './i18n.js'
 
 const CHUNK_SHOW_COUNT = 10
 const RESOLVE_CHUNK_SIZE = 500
@@ -104,7 +105,7 @@ async function startOrResumeRun(
     try {
       const parsed = JSON.parse(res.body) as { runId?: string }
       if (parsed.runId) {
-        emit({ type: 'info', message: `Closing stale server run ${parsed.runId.slice(0, 8)}…` })
+        emit({ type: 'info', message: t('ev_closing_stale', { runId: parsed.runId.slice(0, 8) }) })
         await apiPost<IngestFinalizeResponse>(api, `/api/providers/${providerKey}/ingest/finalize`, { runId: parsed.runId })
       }
     } catch {
@@ -420,7 +421,7 @@ async function loadOrBuildCheckpoint(
 export async function pingKyomiru(
   url: string,
   token: string,
-): Promise<{ id: string; email: string; displayName: string }> {
+): Promise<{ id: string; email: string; displayName: string; preferredLocale: string | null }> {
   const resp = await fetch(`${url.replace(/\/$/, '')}/api/extension/me`, {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
@@ -429,5 +430,11 @@ export async function pingKyomiru(
   if (!resp.ok) {
     throw new Error(`Ping failed: HTTP ${resp.status} ${await resp.text().catch(() => '')}`)
   }
-  return resp.json() as Promise<{ id: string; email: string; displayName: string }>
+  const data = (await resp.json()) as {
+    id: string
+    email: string
+    displayName: string
+    preferredLocale?: string | null
+  }
+  return { ...data, preferredLocale: data.preferredLocale ?? null }
 }

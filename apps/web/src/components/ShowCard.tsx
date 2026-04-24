@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router'
+import { useTranslation } from 'react-i18next'
 import type { ShowListItem } from '@kyomiru/shared/contracts/shows'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function ShowCard({ show }: Props) {
+  const { t } = useTranslation()
   const progress = show.totalEpisodes > 0 ? Math.round((show.watchedEpisodes / show.totalEpisodes) * 100) : 0
 
   return (
@@ -50,7 +52,7 @@ export function ShowCard({ show }: Props) {
             <div className="space-y-1">
               <Progress value={progress} className="h-1.5" />
               <p className="text-xs text-muted-foreground">
-                {show.watchedEpisodes}/{show.totalEpisodes} eps
+                {t('eps', { watched: show.watchedEpisodes, total: show.totalEpisodes, count: show.totalEpisodes })}
               </p>
             </div>
           )}

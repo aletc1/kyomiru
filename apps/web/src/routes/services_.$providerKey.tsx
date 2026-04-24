@@ -2,7 +2,8 @@ import { createFileRoute, useNavigate, Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { api } from '@/lib/api'
+import { useTranslation } from 'react-i18next'
+import { api, translateApiError } from '@/lib/api'
 import { Q } from '@/lib/queryKeys'
 import { PROVIDER_META } from '@/lib/providers'
 import type { ServiceInfo } from '@kyomiru/shared/contracts/services'
@@ -22,6 +23,7 @@ export const Route = createFileRoute('/services_/$providerKey')({
 })
 
 function ServiceDetailPage() {
+  const { t } = useTranslation('services')
   const { providerKey } = Route.useParams()
   const navigate = useNavigate()
 
@@ -36,7 +38,7 @@ function ServiceDetailPage() {
   return (
     <div className="max-w-md space-y-4">
       <Button variant="ghost" size="sm" onClick={() => navigate({ to: '/services' })}>
-        <ArrowLeft className="h-4 w-4 mr-2" /> Back
+        <ArrowLeft className="h-4 w-4 mr-2" /> {t('back')}
       </Button>
       {meta?.connectionKind === 'extension' ? (
         <ExtensionServiceCard svc={svc} providerKey={providerKey} displayName={displayName} />
@@ -52,9 +54,9 @@ function InlineCreateToken({
 }: {
   onCreated: (result: CreateExtensionTokenResponse) => void
 }) {
+  const { t } = useTranslation('services')
   const [label, setLabel] = useState('')
   const { create, tokens } = useExtensionTokens()
-
   const hasDevices = (tokens ?? []).length > 0
 
   return (
@@ -62,18 +64,16 @@ function InlineCreateToken({
       {hasDevices ? (
         <p className="text-xs text-muted-foreground">
           <MonitorSmartphone className="inline h-3.5 w-3.5 mr-1" />
-          You already have {tokens!.length} device{tokens!.length > 1 ? 's' : ''} paired.{' '}
-          <Link to="/settings" className="underline font-medium">Manage in Settings → Devices</Link>
-          {' '}or add another below.
+          {t('devices_paired', { count: tokens!.length })}{' '}
+          <Link to="/settings" className="underline font-medium">{t('manage_devices_link')}</Link>
+          {' '}{t('manage_or_add')}
         </p>
       ) : (
-        <p className="text-xs text-muted-foreground">
-          Create an extension token to link this device to your Kyomiru account.
-        </p>
+        <p className="text-xs text-muted-foreground">{t('create_token_hint')}</p>
       )}
       <div className="flex gap-2">
         <Input
-          placeholder={hasDevices ? 'e.g. Work laptop' : 'e.g. Personal laptop'}
+          placeholder={hasDevices ? t('device_placeholder_extra') : t('device_placeholder_first')}
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           maxLength={64}
@@ -90,7 +90,7 @@ function InlineCreateToken({
           disabled={!label.trim() || create.isPending}
         >
           <Plus className="h-3.5 w-3.5 mr-1" />
-          {create.isPending ? 'Creating…' : 'Create'}
+          {create.isPending ? t('creating') : t('create')}
         </Button>
       </div>
     </div>
@@ -104,20 +104,19 @@ function TokenRevealDialog({
   result: CreateExtensionTokenResponse | null
   onClose: () => void
 }) {
+  const { t } = useTranslation('services')
   const copyToken = async () => {
     if (!result) return
     await navigator.clipboard.writeText(result.token)
-    toast.success('Token copied to clipboard')
+    toast.success(t('token_copied'))
   }
 
   return (
     <Dialog open={result !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Your new extension token</DialogTitle>
-          <DialogDescription>
-            Copy this now — you won't be able to see it again. Paste it into the Kyomiru Chrome extension popup.
-          </DialogDescription>
+          <DialogTitle>{t('new_token_title')}</DialogTitle>
+          <DialogDescription>{t('new_token_desc')}</DialogDescription>
         </DialogHeader>
         {result && (
           <div className="space-y-3">
@@ -125,7 +124,7 @@ function TokenRevealDialog({
               {result.token}
             </div>
             <Button onClick={copyToken} className="w-full">
-              <Copy className="h-4 w-4 mr-2" /> Copy to clipboard
+              <Copy className="h-4 w-4 mr-2" /> {t('copy_to_clipboard')}
             </Button>
           </div>
         )}
@@ -143,6 +142,7 @@ function ExtensionServiceCard({
   providerKey: string
   displayName: string
 }) {
+  const { t } = useTranslation('services')
   const meta = PROVIDER_META[providerKey]
   const [justCreated, setJustCreated] = useState<CreateExtensionTokenResponse | null>(null)
   const connected = svc?.status === 'connected'
@@ -160,12 +160,10 @@ function ExtensionServiceCard({
         <CardContent className="space-y-4">
           {connected ? (
             <div className="space-y-1 text-sm">
-              <p className="text-muted-foreground">
-                Synced via the Kyomiru Chrome extension.
-              </p>
+              <p className="text-muted-foreground">{t('synced_via_extension')}</p>
               {svc?.lastSyncAt && (
                 <p className="text-xs text-muted-foreground">
-                  Last sync: <span className="text-foreground">{new Date(svc.lastSyncAt).toLocaleString()}</span>
+                  {t('last_sync_at', { when: new Date(svc.lastSyncAt).toLocaleString() })}
                 </p>
               )}
               {svc?.lastError && <p className="text-xs text-destructive">{svc.lastError}</p>}
@@ -173,42 +171,29 @@ function ExtensionServiceCard({
           ) : pending ? (
             <div className="space-y-3">
               <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-                <p className="font-medium text-foreground mb-1">Device paired — waiting for first sync</p>
-                <p>Open the extension popup, log in to{' '}
-                  <a href={meta?.siteUrl} target="_blank" rel="noreferrer" className="underline">
-                    {meta?.siteLabel ?? displayName}
-                  </a>
-                  , then click <strong>Sync now</strong>.
-                </p>
+                <p className="font-medium text-foreground mb-1">{t('pending_title')}</p>
+                <p>{t('pending_body', { provider: meta?.siteLabel ?? displayName })}</p>
               </div>
               <p className="text-xs text-muted-foreground">
-                <Link to="/settings" className="underline font-medium">Settings → Devices</Link>
-                {' '}to manage your paired devices.
+                <Link to="/settings" className="underline font-medium">{t('manage_devices_link')}</Link>
+                {' '}{t('manage_or_add')}
               </p>
             </div>
           ) : (
             <ol className="space-y-4 text-sm list-decimal list-inside">
               <li>
-                Install the <strong>Kyomiru</strong> Chrome extension
-                <p className="text-xs text-muted-foreground mt-0.5 ml-5">
-                  Build it from <code>apps/extension</code> and load it unpacked in Chrome → Extensions → Developer mode.
-                </p>
+                {t('install_step1')}
+                <p className="text-xs text-muted-foreground mt-0.5 ml-5">{t('install_step1_hint')}</p>
               </li>
               <li>
-                Create an extension token for this device
+                {t('install_step2')}
                 <div className="mt-2 ml-0">
                   <InlineCreateToken onCreated={setJustCreated} />
                 </div>
               </li>
+              <li>{t('install_step3')}</li>
               <li>
-                Open the extension popup and paste your Kyomiru URL + the token
-              </li>
-              <li>
-                Log in to{' '}
-                <a href={meta?.siteUrl} target="_blank" rel="noreferrer" className="underline">
-                  {meta?.siteLabel ?? displayName}
-                </a>
-                , then click <strong>Sync now</strong> in the extension
+                {t('install_step4', { provider: meta?.siteLabel ?? displayName })}
               </li>
             </ol>
           )}
@@ -229,20 +214,21 @@ function BearerTokenCard({
   providerKey: string
   displayName: string
 }) {
+  const { t } = useTranslation('services')
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [token, setToken] = useState('')
 
   const test = useMutation({
     mutationFn: () => api.post<{ ok: boolean; error?: string }>(`/services/${providerKey}/test`, { token }),
-    onSuccess: (d) => d.ok ? toast.success('Connection successful!') : toast.error(d.error ?? 'Connection failed'),
+    onSuccess: (d) => d.ok ? toast.success(t('connection_successful')) : toast.error(d.error ? translateApiError(d.error) : t('common:error_internal')),
     onError: (err) => toast.error(err.message),
   })
 
   const connect = useMutation({
     mutationFn: () => api.post(`/services/${providerKey}/connect`, { token }),
     onSuccess: () => {
-      toast.success('Connected!')
+      toast.success(t('connected_toast'))
       queryClient.invalidateQueries({ queryKey: Q.services })
       navigate({ to: '/services' })
     },
@@ -252,7 +238,7 @@ function BearerTokenCard({
   const disconnect = useMutation({
     mutationFn: () => api.post(`/services/${providerKey}/disconnect`),
     onSuccess: () => {
-      toast.success('Disconnected. Your data is preserved.')
+      toast.success(t('disconnected_toast'))
       queryClient.invalidateQueries({ queryKey: Q.services })
       navigate({ to: '/services' })
     },
@@ -267,38 +253,32 @@ function BearerTokenCard({
       <CardContent className="space-y-4">
         {svc?.status === 'connected' ? (
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Connected. Your credentials are stored encrypted and your data will be preserved if you disconnect.
-            </p>
-            {svc.lastSyncAt && <p className="text-xs text-muted-foreground">Last sync: {new Date(svc.lastSyncAt).toLocaleString()}</p>}
+            <p className="text-sm text-muted-foreground">{t('connected_desc')}</p>
+            {svc.lastSyncAt && <p className="text-xs text-muted-foreground">{t('last_sync_at', { when: new Date(svc.lastSyncAt).toLocaleString() })}</p>}
             <Button variant="destructive" onClick={() => disconnect.mutate()} disabled={disconnect.isPending} className="w-full">
-              Disconnect
+              {t('common:disconnect')}
             </Button>
           </div>
         ) : (
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="token">Bearer Token</Label>
+              <Label htmlFor="token">{t('bearer_label')}</Label>
               <Input
                 id="token"
                 type="password"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                placeholder="Paste the Bearer JWT access token"
+                placeholder={t('bearer_placeholder')}
                 autoComplete="off"
               />
-              <p className="text-xs text-muted-foreground">
-                Sign in to the provider's website, open DevTools → Network, pick an authenticated API request, copy the value of the
-                {' '}<code className="text-foreground">Authorization</code> header (the part after
-                {' '}<code className="text-foreground">Bearer</code>) and paste it here.
-              </p>
+              <p className="text-xs text-muted-foreground">{t('bearer_hint')}</p>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => test.mutate()} disabled={test.isPending || !token} className="flex-1">
-                {test.isPending ? 'Testing…' : 'Test'}
+                {test.isPending ? t('testing') : t('test')}
               </Button>
               <Button onClick={() => connect.mutate()} disabled={connect.isPending || !token} className="flex-1">
-                {connect.isPending ? 'Connecting…' : 'Connect'}
+                {connect.isPending ? t('connecting') : t('connect')}
               </Button>
             </div>
           </div>

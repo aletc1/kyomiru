@@ -4,6 +4,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { GripVertical } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
+import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { Q } from '@/lib/queryKeys'
 import type { LibraryResponse } from '@kyomiru/shared/contracts/library'
@@ -31,6 +32,7 @@ function QueueItem({ show }: { show: LibraryResponse['items'][number] }) {
 }
 
 export function WatchQueue() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { data, isLoading } = useQuery<LibraryResponse>({
     queryKey: Q.queue,
@@ -61,7 +63,7 @@ export function WatchQueue() {
   )
 
   if (queueItems.length === 0) return (
-    <p className="text-xs text-muted-foreground px-3 py-2">No shows in queue. Favorite a show to add it.</p>
+    <p className="text-xs text-muted-foreground px-3 py-2">{t('queue_empty')}</p>
   )
 
   return (
