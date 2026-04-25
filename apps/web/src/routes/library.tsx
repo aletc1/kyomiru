@@ -104,7 +104,7 @@ function LibraryPage() {
 
   const handleSearch = useCallback((val: string) => {
     setSearchInput(val)
-    navigate({ search: (prev) => ({ ...prev, q: val || undefined }) })
+    navigate({ search: (prev) => ({ ...prev, q: val || undefined }), replace: true })
   }, [navigate])
 
   const handleStatusChange = useCallback((v: string) => {
