@@ -30,5 +30,6 @@
   "error_user_not_found": "Usuario no encontrado",
   "error_internal": "Error interno del servidor",
   "error_forbidden": "Prohibido",
-  "app_updated_refreshing": "App actualizada, recargando…"
+  "app_updated_refreshing": "App actualizada, recargando…",
+  "open_in_justwatch": "Abrir en JustWatch"
 }

@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { ProviderLinkButton } from '@/components/ProviderLinkButton'
+import { JustWatchButton } from '@/components/JustWatchButton'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -154,6 +155,7 @@ function ShowDetailPage() {
               </Button>
             )}
             <ProviderLinkButton providers={show.providers} kind="show" size="sm" showLabel />
+            <JustWatchButton title={show.canonicalTitle} year={show.year} size="sm" showLabel />
             {isRemoved ? (
               <Button variant="outline" size="sm" onClick={() => patch.mutate({ status: 'restore' })} disabled={patch.isPending}>
                 <RotateCcw className="h-4 w-4 mr-1.5" /> {t('restore')}
