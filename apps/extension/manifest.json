@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kyomiru Watch Sync",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "description": "Sync your Crunchyroll and Netflix watch history to your Kyomiru instance via your live browser session.",
   "permissions": [
     "storage",

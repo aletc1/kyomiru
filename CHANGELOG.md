@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.4.3...kyomiru-v1.5.0) (2026-04-25)
+
+
+### Features
+
+* **api:** show-refresh worker, airing/debug scripts, sync chunk fix ([#40](https://github.com/aletc1/kyomiru/issues/40)) ([8a4daf2](https://github.com/aletc1/kyomiru/commit/8a4daf24c76d125c71133dee6aacf93d9f2e924e))
+* **web:** auto-update PWA with reload toast and theme refresh ([#42](https://github.com/aletc1/kyomiru/issues/42)) ([e51eb36](https://github.com/aletc1/kyomiru/commit/e51eb36918344779b8a075ac7ff1cada32afff79))
+
 ## [1.4.3](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.4.2...kyomiru-v1.4.3) (2026-04-25)
 
 
