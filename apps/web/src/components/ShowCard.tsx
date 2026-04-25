@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { RatingStars } from '@/components/RatingStars'
 import { ProviderLinkButton } from '@/components/ProviderLinkButton'
+import { JustWatchButton } from '@/components/JustWatchButton'
 
 interface Props {
   show: ShowListItem
@@ -55,16 +56,23 @@ export function ShowCard({ show }: Props) {
           <Badge variant="new">NEW</Badge>
         </div>
       )}
-      {show.providers.length > 0 && (
-        <div className="absolute top-2 right-2">
+      <div className="absolute top-2 right-2">
+        {show.providers.length > 0 ? (
           <ProviderLinkButton
             providers={show.providers}
             kind="show"
             size="icon"
             className="h-8 w-8 bg-background/80 backdrop-blur-sm hover:bg-background"
           />
-        </div>
-      )}
+        ) : (
+          <JustWatchButton
+            title={show.canonicalTitle}
+            year={show.year}
+            size="icon"
+            className="h-8 w-8 bg-background/80 backdrop-blur-sm hover:bg-background"
+          />
+        )}
+      </div>
     </div>
   )
 }
