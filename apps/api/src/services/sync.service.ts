@@ -416,6 +416,10 @@ export async function ingestChunk(
 
     // ── Step 2: Insert new shows (typically ≤ a handful per chunk) ────────────
     // These are sequential to handle the race-condition fallback cleanly.
+    // Enrichment is collected here and enqueued AFTER the write transaction so
+    // the merge worker cannot delete episodes (via cascade) between step 4
+    // (episode ID resolution) and step 6 (user_episode_progress insert).
+    const showIdsToEnrich: string[] = []
     const newExtIds = allExtShowIds.filter((id) => !showIdByExtId.has(id) && showsByExt.has(id))
     for (const extId of newExtIds) {
       const tree = showsByExt.get(extId)!
@@ -436,7 +440,7 @@ export async function ingestChunk(
           externalId: extId,
         }).onConflictDoNothing()
         showIdByExtId.set(extId, newShow.id)
-        if (enrichmentQueue) await enqueueEnrichment(enrichmentQueue, newShow.id)
+        showIdsToEnrich.push(newShow.id)
       } else {
         // Race: another concurrent request already inserted this show; use its id.
         const [existing] = await db
@@ -509,20 +513,44 @@ export async function ingestChunk(
             .onConflictDoNothing()
         }
 
-        // 6b. Check which progress rows already exist to count itemsNew correctly.
-        const resolvedEpIdsForItems = resolvedItems.map(
+        // 6b. Re-validate episode IDs inside the transaction to guard against a
+        // race where the merge worker deletes an episode between step 4 (episode
+        // resolution, outside this transaction) and here. Episodes deleted by a
+        // concurrent merge are silently skipped — their watch_event is still recorded.
+        // A narrow residual race remains: under READ COMMITTED, a merge that
+        // commits between this SELECT and the user_episode_progress INSERT below
+        // can still cause an FK violation. Acceptable because deferred enrichment
+        // (above) eliminates the self-triggered case, which is the common one.
+        const outerEpIds = [...new Set(resolvedItems.map((item) => episodeIdByExtItemId.get(item.externalItemId)!))]
+        const stillExistingEpSet = new Set<string>()
+        for (let i = 0; i < outerEpIds.length; i += INSERT_BATCH) {
+          const slice = outerEpIds.slice(i, i + INSERT_BATCH)
+          const rows = await tx.select({ id: episodes.id }).from(episodes).where(inArray(episodes.id, slice))
+          for (const r of rows) stillExistingEpSet.add(r.id)
+        }
+        const validResolvedItems = stillExistingEpSet.size < outerEpIds.length
+          ? resolvedItems.filter((item) => {
+              const epId = episodeIdByExtItemId.get(item.externalItemId)
+              return epId !== undefined && stillExistingEpSet.has(epId)
+            })
+          : resolvedItems
+
+        // 6c. Check which progress rows already exist to count itemsNew correctly.
+        const resolvedEpIdsForItems = validResolvedItems.map(
           (item) => episodeIdByExtItemId.get(item.externalItemId)!
         )
-        const existingProgress = await tx
-          .select({ episodeId: userEpisodeProgress.episodeId })
-          .from(userEpisodeProgress)
-          .where(and(
-            eq(userEpisodeProgress.userId, userId),
-            inArray(userEpisodeProgress.episodeId, resolvedEpIdsForItems),
-          ))
+        const existingProgress = resolvedEpIdsForItems.length > 0
+          ? await tx
+              .select({ episodeId: userEpisodeProgress.episodeId })
+              .from(userEpisodeProgress)
+              .where(and(
+                eq(userEpisodeProgress.userId, userId),
+                inArray(userEpisodeProgress.episodeId, resolvedEpIdsForItems),
+              ))
+          : []
         const existingSet = new Set(existingProgress.map((r) => r.episodeId))
 
-        // 6c. Build progress rows, deduping by episodeId so the bulk INSERT
+        // 6d. Build progress rows, deduping by episodeId so the bulk INSERT
         // never carries two rows targeting the same (userId, episodeId) — Postgres
         // rejects "ON CONFLICT DO UPDATE command cannot affect row a second time"
         // when that happens. Multiple items per episode are realistic: Netflix
@@ -535,7 +563,7 @@ export async function ingestChunk(
         const seenNewEpisodes = new Set<string>()
         const progressByEpisode = new Map<string, typeof userEpisodeProgress.$inferInsert>()
 
-        for (const item of resolvedItems) {
+        for (const item of validResolvedItems) {
           const episodeId = episodeIdByExtItemId.get(item.externalItemId)!
           const watched = isWatched(item.playheadSeconds, item.durationSeconds, item.fullyWatched)
 
@@ -578,7 +606,7 @@ export async function ingestChunk(
 
         const progressValues = [...progressByEpisode.values()]
 
-        // 6d. Bulk upsert user_episode_progress
+        // 6e. Bulk upsert user_episode_progress
         for (let i = 0; i < progressValues.length; i += INSERT_BATCH) {
           await tx.insert(userEpisodeProgress)
             .values(progressValues.slice(i, i + INSERT_BATCH))
@@ -593,7 +621,7 @@ export async function ingestChunk(
             })
         }
 
-        // 6e. Ensure user_show_state rows exist (ON CONFLICT DO NOTHING preserves status/rating).
+        // 6f. Ensure user_show_state rows exist (ON CONFLICT DO NOTHING preserves status/rating).
         if (localTouched.size > 0) {
           const now = new Date()
           await tx.insert(userShowState)
@@ -614,6 +642,12 @@ export async function ingestChunk(
       counters.itemsIngested = txResult.localIngested
       counters.itemsNew = txResult.localNew
       for (const id of txResult.localTouched) touchedShowIds.add(id)
+    }
+
+    // Enqueue enrichment after user_episode_progress is safely committed so the
+    // merge worker cannot race against an in-flight write transaction.
+    if (enrichmentQueue && showIdsToEnrich.length > 0) {
+      await Promise.all(showIdsToEnrich.map((showId) => enqueueEnrichment(enrichmentQueue, showId)))
     }
 
   } catch (err) {
