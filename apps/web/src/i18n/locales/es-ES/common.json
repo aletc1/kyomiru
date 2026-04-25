@@ -29,5 +29,6 @@
   "error_unauthorized": "No autorizado",
   "error_user_not_found": "Usuario no encontrado",
   "error_internal": "Error interno del servidor",
-  "error_forbidden": "Prohibido"
+  "error_forbidden": "Prohibido",
+  "app_updated_refreshing": "App actualizada, recargando…"
 }
