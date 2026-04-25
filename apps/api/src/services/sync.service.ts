@@ -46,14 +46,45 @@ export async function upsertShowCatalog(
   }
 
   // ── Bulk upsert all seasons ────────────────────────────────────────────────
-  const seasonValues = seasonTrees.map((s) => ({
-    showId,
-    seasonNumber: s.number,
-    title: s.title ?? null,
-    airDate: s.airDate ?? null,
-    episodeCount: s.episodes.length,
-    titles: (s.titles ?? (s.title ? { en: s.title } : {})) as Record<string, string>,
-  }))
+  // Dedupe by seasonNumber so the bulk INSERT never carries two rows targeting
+  // the same (showId, seasonNumber) — Postgres rejects "ON CONFLICT DO UPDATE
+  // command cannot affect row a second time" when that happens. IngestOrdinal
+  // floors fractional values, so Crunchyroll season 2 + season 2.5 (OVA arc)
+  // collapse to the same integer. Within-batch values are merged with the same
+  // semantics as the SQL ON CONFLICT clause.
+  type SeasonValue = {
+    showId: string
+    seasonNumber: number
+    title: string | null
+    airDate: string | null
+    episodeCount: number
+    titles: Record<string, string>
+  }
+  const seasonByNumber = new Map<number, SeasonValue>()
+  for (const s of seasonTrees) {
+    const next: SeasonValue = {
+      showId,
+      seasonNumber: s.number,
+      title: s.title ?? null,
+      airDate: s.airDate ?? null,
+      episodeCount: s.episodes.length,
+      titles: (s.titles ?? (s.title ? { en: s.title } : {})) as Record<string, string>,
+    }
+    const prev = seasonByNumber.get(s.number)
+    if (!prev) {
+      seasonByNumber.set(s.number, next)
+    } else {
+      seasonByNumber.set(s.number, {
+        showId,
+        seasonNumber: s.number,
+        title: prev.title ?? next.title,
+        airDate: prev.airDate ?? next.airDate,
+        episodeCount: Math.max(prev.episodeCount, next.episodeCount),
+        titles: { ...prev.titles, ...next.titles },
+      })
+    }
+  }
+  const seasonValues = [...seasonByNumber.values()]
 
   const insertedSeasons: { id: string; seasonNumber: number }[] = []
   for (let i = 0; i < seasonValues.length; i += INSERT_BATCH) {
@@ -73,7 +104,11 @@ export async function upsertShowCatalog(
   const seasonIdByNumber = new Map(insertedSeasons.map((s) => [s.seasonNumber, s.id]))
 
   // ── Collect all episodes + their external IDs ──────────────────────────────
-  const allEpisodeValues: (typeof episodes.$inferInsert)[] = []
+  // Same dedup rationale as seasons: episodes 11 and 11.5 (recap special) both
+  // floor to episodeNumber 11 in IngestOrdinal and would collide on the bulk
+  // INSERT's (seasonId, episodeNumber) conflict target. Each distinct externalId
+  // is preserved separately and mapped onto the shared episode row below.
+  const episodeByKey = new Map<string, typeof episodes.$inferInsert>()
   // Parallel list that maps each episode value to its external provider ID (if any).
   const episodeExternalIds: Array<{ seasonId: string; episodeNumber: number; externalId: string }> = []
 
@@ -82,7 +117,7 @@ export async function upsertShowCatalog(
     if (!seasonId) continue
     for (const e of s.episodes) {
       const epTitles = (e.titles ?? (e.title ? { en: e.title } : {})) as Record<string, string>
-      allEpisodeValues.push({
+      const next: typeof episodes.$inferInsert = {
         seasonId,
         showId,
         episodeNumber: e.number,
@@ -91,12 +126,30 @@ export async function upsertShowCatalog(
         descriptions: (e.descriptions ?? {}) as Record<string, string>,
         durationSeconds: e.durationSeconds ?? null,
         airDate: e.airDate ?? null,
-      })
+      }
+      const key = `${seasonId}:${e.number}`
+      const prev = episodeByKey.get(key)
+      if (!prev) {
+        episodeByKey.set(key, next)
+      } else {
+        episodeByKey.set(key, {
+          seasonId,
+          showId,
+          episodeNumber: e.number,
+          title: prev.title ?? next.title ?? null,
+          titles: { ...(prev.titles as Record<string, string>), ...(next.titles as Record<string, string>) },
+          descriptions: { ...(prev.descriptions as Record<string, string>), ...(next.descriptions as Record<string, string>) },
+          durationSeconds: prev.durationSeconds ?? next.durationSeconds ?? null,
+          airDate: prev.airDate ?? next.airDate ?? null,
+        })
+      }
       if (e.externalId) {
         episodeExternalIds.push({ seasonId, episodeNumber: e.number, externalId: e.externalId })
       }
     }
   }
+
+  const allEpisodeValues = [...episodeByKey.values()]
 
   if (allEpisodeValues.length === 0) return
 
@@ -123,15 +176,16 @@ export async function upsertShowCatalog(
   if (!providerKey || episodeExternalIds.length === 0) return
 
   // ── Bulk insert episode_providers ─────────────────────────────────────────
-  // Build seasonId:episodeNumber → externalId lookup.
-  const externalIdMap = new Map(
-    episodeExternalIds.map((e) => [`${e.seasonId}:${e.episodeNumber}`, e.externalId])
-  )
+  // Iterate episodeExternalIds directly so multiple externalIds for the same
+  // (seasonId, episodeNumber) all land on the shared episode row — e.g. ep 11
+  // and recap special 11.5 both floor to episodeNumber 11 and should both
+  // resolve to the same episode.id.
+  const episodeIdByKey = new Map(insertedEps.map((ep) => [`${ep.seasonId}:${ep.episodeNumber}`, ep.id]))
 
   const epProviderValues: (typeof episodeProviders.$inferInsert)[] = []
-  for (const ep of insertedEps) {
-    const externalId = externalIdMap.get(`${ep.seasonId}:${ep.episodeNumber}`)
-    if (externalId) epProviderValues.push({ episodeId: ep.id, providerKey, externalId })
+  for (const ee of episodeExternalIds) {
+    const episodeId = episodeIdByKey.get(`${ee.seasonId}:${ee.episodeNumber}`)
+    if (episodeId) epProviderValues.push({ episodeId, providerKey, externalId: ee.externalId })
   }
 
   for (let i = 0; i < epProviderValues.length; i += INSERT_BATCH) {
