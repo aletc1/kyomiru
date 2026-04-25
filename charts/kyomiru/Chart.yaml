@@ -2,8 +2,8 @@ apiVersion: v2
 name: kyomiru
 description: Self-hostable PWA for tracking anime and TV show watch history
 type: application
-version: 1.6.0
-appVersion: 1.6.0
+version: 1.6.1
+appVersion: 1.6.1
 home: https://github.com/aletc1/kyomiru
 sources:
   - https://github.com/aletc1/kyomiru

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.6.0...kyomiru-v1.6.1) (2026-04-25)
+
+
+### Bug Fixes
+
+* **web:** mobile layout for show actions and library toolbar ([#49](https://github.com/aletc1/kyomiru/issues/49)) ([5652f2f](https://github.com/aletc1/kyomiru/commit/5652f2f00917a95fa9c323fa0389726634fa2d95))
+
 ## [1.6.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.5.1...kyomiru-v1.6.0) (2026-04-25)
 
 
