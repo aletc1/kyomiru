@@ -9,7 +9,7 @@ export async function libraryRoutes(app: FastifyInstance) {
   app.get('/library', { preHandler: app.requireAuth }, async (req, reply) => {
     const userId = req.session.get('userId')!
     const parsed = LibraryQuerySchema.parse(req.query)
-    const { status, sort, provider, kind, limit } = parsed
+    const { status, sort, provider, kind, genre, limit } = parsed
     // Trim so a whitespace-only `?q= ` doesn't trigger the search branch
     // (trigrams space-pad, so `' ' <% anything` would match nearly all rows).
     const q = parsed.q?.trim() ? parsed.q.trim() : undefined
@@ -33,6 +33,7 @@ export async function libraryRoutes(app: FastifyInstance) {
       WHERE show_providers.show_id = ${shows.id}
         AND show_providers.provider_key = ${provider}
     )`)
+    if (genre) conditions.push(sql`${shows.genres} @> ARRAY[${genre}]::text[]`)
     // Hybrid: tsvector FTS for whole-word/phrase matches (uses shows_search_tsv_idx)
     // + word_similarity for fuzzy/prefix/accent-stripped matches. Both branches
     // apply immutable_unaccent so 'akira' matches stored 'Ákira'. We use the
@@ -138,7 +139,7 @@ export async function libraryRoutes(app: FastifyInstance) {
   app.get('/library/facets', { preHandler: app.requireAuth }, async (req, reply) => {
     const userId = req.session.get('userId')!
 
-    const [providerRows, kindRows] = await Promise.all([
+    const [providerRows, kindRows, genreRows] = await Promise.all([
       app.db
         .selectDistinct({ key: providers.key, displayName: providers.displayName })
         .from(showProviders)
@@ -152,11 +153,21 @@ export async function libraryRoutes(app: FastifyInstance) {
         .innerJoin(userShowState, eq(shows.id, userShowState.showId))
         .where(eq(userShowState.userId, userId))
         .orderBy(asc(shows.kind)),
+      app.db.execute<{ genre: string }>(sql`
+        SELECT DISTINCT g AS genre
+        FROM shows
+        INNER JOIN user_show_state uss ON uss.show_id = shows.id
+        CROSS JOIN LATERAL unnest(shows.genres) AS g
+        WHERE uss.user_id = ${userId}
+          AND g <> ''
+        ORDER BY g
+      `),
     ])
 
     reply.send({
       providers: providerRows,
       kinds: kindRows.map((r) => r.kind),
+      genres: genreRows.map((r) => r.genre),
     })
   })
 }

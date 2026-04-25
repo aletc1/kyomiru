@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
 import { Q } from '@/lib/queryKeys'
-import { useAppStore, LIBRARY_STATUS_VALUES, LIBRARY_SORT_VALUES, LIBRARY_KIND_VALUES, DEFAULT_LIBRARY_SORT } from '@/lib/store'
+import { useAppStore, LIBRARY_STATUS_VALUES, LIBRARY_SORT_VALUES, LIBRARY_KIND_VALUES, DEFAULT_LIBRARY_SORT, type LibraryGenre } from '@/lib/store'
 import type { LibraryResponse, LibraryFacets } from '@kyomiru/shared/contracts/library'
 import type { NewContentCount } from '@kyomiru/shared/contracts/auth'
 import { ShowCard } from '@/components/ShowCard'
@@ -24,6 +24,7 @@ const searchSchema = z.object({
   sort: z.enum(LIBRARY_SORT_VALUES).optional().catch(undefined),
   kind: z.enum(LIBRARY_KIND_VALUES).optional().catch(undefined),
   provider: z.string().optional(),
+  genre: z.string().optional(),
 })
 
 export const Route = createFileRoute('/library')({
@@ -37,8 +38,8 @@ function LibraryPage() {
   const navigate = useNavigate({ from: '/library' })
   const {
     viewMode, setViewMode,
-    libraryStatus, librarySort, libraryKind, libraryProvider,
-    setLibraryStatus, setLibrarySort, setLibraryKind, setLibraryProvider,
+    libraryStatus, librarySort, libraryKind, libraryProvider, libraryGenre,
+    setLibraryStatus, setLibrarySort, setLibraryKind, setLibraryProvider, setLibraryGenre,
   } = useAppStore()
   const [searchInput, setSearchInput] = useState(search.q ?? '')
 
@@ -46,13 +47,15 @@ function LibraryPage() {
   const sort = search.sort ?? librarySort
   const kind = search.kind ?? libraryKind
   const provider = search.provider ?? libraryProvider
+  const genre = search.genre ?? libraryGenre
   const q = search.q
 
   const [filtersOpen, setFiltersOpen] = useState(
     () =>
       (search.sort ?? librarySort) !== DEFAULT_LIBRARY_SORT ||
       (search.kind ?? libraryKind) !== undefined ||
-      (search.provider ?? libraryProvider) !== undefined,
+      (search.provider ?? libraryProvider) !== undefined ||
+      (search.genre ?? libraryGenre) !== undefined,
   )
 
   useEffect(() => {
@@ -61,6 +64,7 @@ function LibraryPage() {
     if (search.sort === undefined && librarySort !== DEFAULT_LIBRARY_SORT) patch.sort = librarySort
     if (search.kind === undefined && libraryKind !== undefined) patch.kind = libraryKind
     if (search.provider === undefined && libraryProvider !== undefined) patch.provider = libraryProvider
+    if (search.genre === undefined && libraryGenre !== undefined) patch.genre = libraryGenre
     if (Object.keys(patch).length > 0) {
       navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })
     }
@@ -79,7 +83,7 @@ function LibraryPage() {
   })
 
   const { data, isLoading, fetchNextPage, hasNextPage } = useInfiniteQuery<LibraryResponse>({
-    queryKey: Q.library({ q, status, sort, kind, provider }),
+    queryKey: Q.library({ q, status, sort, kind, provider, genre }),
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams()
       if (q) params.set('q', q)
@@ -87,6 +91,7 @@ function LibraryPage() {
       params.set('sort', sort)
       if (kind) params.set('kind', kind)
       if (provider) params.set('provider', provider)
+      if (genre) params.set('genre', genre)
       if (pageParam) params.set('cursor', pageParam as string)
       return api.get<LibraryResponse>(`/library?${params}`)
     },
@@ -126,8 +131,15 @@ function LibraryPage() {
     navigate({ search: (prev) => ({ ...prev, provider: next }) })
   }, [navigate, setLibraryProvider])
 
+  const handleGenreChange = useCallback((v: string) => {
+    const next = v === 'all' ? undefined : v as LibraryGenre
+    setLibraryGenre(next)
+    navigate({ search: (prev) => ({ ...prev, genre: next }) })
+  }, [navigate, setLibraryGenre])
+
   const facetProviders = facetsData?.providers ?? []
   const facetKinds = facetsData?.kinds ?? []
+  const facetGenres = facetsData?.genres ?? []
 
   const showKindFilter = facetKinds.length > 1 || (kind !== undefined && !facetKinds.includes(kind))
   const kindOptions = facetKinds.includes(kind as never) || kind === undefined
@@ -137,6 +149,10 @@ function LibraryPage() {
   const providerOptions = provider === undefined || facetProviders.some((p) => p.key === provider)
     ? facetProviders
     : [...facetProviders, { key: provider, displayName: provider }]
+  const showGenreFilter = facetGenres.length > 0 || genre !== undefined
+  const genreOptions = genre === undefined || facetGenres.includes(genre)
+    ? facetGenres
+    : [...facetGenres, genre]
 
   // When `q` is set, the API ignores `sort` and orders by relevance, so don't
   // show the user's stale sort choice as an "active filter" or render the
@@ -145,7 +161,8 @@ function LibraryPage() {
   const activeCount =
     (sortActive ? 1 : 0) +
     (kind !== undefined ? 1 : 0) +
-    (provider !== undefined ? 1 : 0)
+    (provider !== undefined ? 1 : 0) +
+    (genre !== undefined ? 1 : 0)
 
   const kindLabel = (k: string) => {
     if (k === 'anime') return t('kind_anime')
@@ -234,6 +251,19 @@ function LibraryPage() {
                 <SelectItem value="all">{t('filter_all_providers')}</SelectItem>
                 {providerOptions.map((p) => (
                   <SelectItem key={p.key} value={p.key}>{p.displayName}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {showGenreFilter && (
+            <Select value={genre ?? 'all'} onValueChange={handleGenreChange}>
+              <SelectTrigger className="w-full sm:w-48">
+                <SelectValue placeholder={t('filter_genre')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('filter_all_genres')}</SelectItem>
+                {genreOptions.map((g) => (
+                  <SelectItem key={g} value={g}>{g}</SelectItem>
                 ))}
               </SelectContent>
             </Select>

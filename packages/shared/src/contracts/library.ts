@@ -9,6 +9,7 @@ export const LibraryQuerySchema = z.object({
   group: z.enum(GROUP_OPTIONS).optional().default('none'),
   provider: z.string().optional(),
   kind: ShowKindSchema.optional(),
+  genre: z.string().optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional().default(48),
 })
@@ -31,6 +32,7 @@ export const LibraryFacetProviderSchema = z.object({
 export const LibraryFacetsSchema = z.object({
   providers: z.array(LibraryFacetProviderSchema),
   kinds: z.array(ShowKindSchema),
+  genres: z.array(z.string()),
 })
 
 export type LibraryQuery = z.infer<typeof LibraryQuerySchema>
