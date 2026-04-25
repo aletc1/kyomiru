@@ -9,6 +9,7 @@ import type { SeasonTree } from '@kyomiru/providers/types'
 import { upsertShowCatalog } from '../services/sync.service.js'
 import { resolveExternalIds, withExternalIdRetry } from '../services/enrichmentMerge.js'
 import { enqueueShowRefresh, type ShowRefreshJobData } from './showRefreshWorker.js'
+import { enqueueShowMerge, type ShowMergeJobData } from './showMergeWorker.js'
 import { classifyKind } from '../services/classifyKind.js'
 import { logger } from '../util/logger.js'
 
@@ -69,6 +70,7 @@ export function createEnrichmentWorker(
   tmdbApiKey: string | undefined,
   locales: string[],
   showRefreshQueue: Queue<ShowRefreshJobData>,
+  showMergeQueue: Queue<ShowMergeJobData>,
   concurrency = 3,
 ) {
   const worker = new Worker<EnrichmentJobData>(
@@ -182,8 +184,14 @@ export function createEnrichmentWorker(
         for (const c of resolved.conflicts) {
           logger.warn(
             { showId, conflictingShowId: c.conflictingShowId, kind: c.kind, externalId: c.externalId },
-            'enrichment external id conflict — duplicate show rows',
+            'enrichment external id conflict — enqueueing show merge',
           )
+          await enqueueShowMerge(showMergeQueue, {
+            kind: c.kind,
+            externalId: c.externalId,
+            canonicalShowId: c.conflictingShowId,
+            duplicateShowId: showId,
+          })
         }
 
         await withExternalIdRetry(

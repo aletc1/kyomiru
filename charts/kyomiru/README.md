@@ -274,9 +274,15 @@ kubectl -n kyomiru exec deploy/kyomiru-api -- npm run backfill:translations
 
 # Reset enrichedAt for kind='tv' shows to re-classify (e.g. promote Animation to anime):
 kubectl -n kyomiru exec deploy/kyomiru-api -- npm run backfill:reclassify
+
+# Enqueue showRefresh for shows whose stored total_episodes drifted from current aired count (run daily):
+kubectl -n kyomiru exec deploy/kyomiru-api -- npm run recompute:airing
+
+# Re-enqueue enrichment for shows with no tmdb_id — periodic duplicate-detection safety net (run daily):
+kubectl -n kyomiru exec deploy/kyomiru-api -- npm run merge:scan
 ```
 
-Run `backfill:translations` after adding new locales to `app.enrichmentLocales`. Run `backfill:reclassify` once after upgrading to the release containing the Animation classification fix to retroactively promote previously-misclassified shows.
+Run `backfill:translations` after adding new locales to `app.enrichmentLocales`. Run `backfill:reclassify` once after upgrading to the release containing the Animation classification fix to retroactively promote previously-misclassified shows. Run `recompute:airing` and `merge:scan` daily via an external cron (e.g. a Kubernetes CronJob or your CI scheduler).
 
 ## Inspecting Queues
 
@@ -356,6 +362,14 @@ Check the API health endpoint:
 kubectl -n kyomiru port-forward svc/kyomiru-api 3000:3000
 curl http://localhost:3000/api/healthz
 # {"ok":true,"db":true,"redis":true}
+```
+
+Diagnose enrichment for a single show (dry-run — prints what would be written without persisting):
+
+```bash
+kubectl -n kyomiru exec deploy/kyomiru-api -- npm run enrichment:debug -- <showId>
+# Append -- --apply to actually persist the result
+kubectl -n kyomiru exec deploy/kyomiru-api -- npm run enrichment:debug -- <showId> --apply
 ```
 
 ## Configuring Quay.io (maintainers)

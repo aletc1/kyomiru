@@ -8,6 +8,7 @@ import { redisPlugin } from './plugins/redis.js'
 import { authPlugin } from './plugins/auth.js'
 import { enrichmentQueuePlugin } from './plugins/enrichmentQueue.js'
 import { showRefreshQueuePlugin } from './plugins/showRefreshQueue.js'
+import { showMergeQueuePlugin } from './plugins/showMergeQueue.js'
 import { errorHandlerPlugin } from './plugins/errorHandler.js'
 import { authRoutes } from './routes/auth.routes.js'
 import { meRoutes } from './routes/me.routes.js'
@@ -59,6 +60,7 @@ export async function buildApp() {
   await app.register(redisPlugin)
   await app.register(enrichmentQueuePlugin)
   await app.register(showRefreshQueuePlugin)
+  await app.register(showMergeQueuePlugin)
   await app.register(authPlugin)
   await app.register(errorHandlerPlugin)
 

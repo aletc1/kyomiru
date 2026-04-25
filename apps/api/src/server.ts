@@ -3,6 +3,7 @@ import { Redis } from 'ioredis'
 import { buildApp } from './app.js'
 import { createEnrichmentWorker } from './workers/enrichmentWorker.js'
 import { createShowRefreshWorker } from './workers/showRefreshWorker.js'
+import { createShowMergeWorker } from './workers/showMergeWorker.js'
 
 async function main() {
   const app = await buildApp()
@@ -23,15 +24,18 @@ async function main() {
     config.TMDB_API_KEY,
     config.ENRICHMENT_LOCALES,
     app.showRefreshQueue,
+    app.showMergeQueue,
     config.ENRICHMENT_CONCURRENCY,
   )
   const refreshWorker = createShowRefreshWorker(app.db, workerRedis, config.SHOW_REFRESH_CONCURRENCY)
+  const mergeWorker = createShowMergeWorker(app.db, workerRedis, app.showRefreshQueue)
 
   await app.listen({ port: config.PORT, host: '0.0.0.0' })
 
   const shutdown = async () => {
     await enrichWorker.close()
     await refreshWorker.close()
+    await mergeWorker.close()
     await workerRedis.quit()
     await app.close()
     process.exit(0)

@@ -19,7 +19,8 @@
     "approved:remove": "node dist/approved.js remove",
     "approved:list": "node dist/approved.js list",
     "enrichment:debug": "node dist/debugEnrichment.js",
-    "queue:status": "node dist/queueStatus.js"
+    "queue:status": "node dist/queueStatus.js",
+    "merge:scan": "node dist/scanDuplicateShows.js"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.1",
