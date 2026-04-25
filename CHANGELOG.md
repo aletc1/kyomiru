@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.1](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.5.0...kyomiru-v1.5.1) (2026-04-25)
+
+
+### Bug Fixes
+
+* **api:** harden enrichment/show-refresh workers and external-id writes ([#43](https://github.com/aletc1/kyomiru/issues/43)) ([4a3b168](https://github.com/aletc1/kyomiru/commit/4a3b16892c5ff682661b81c75a70f78573240f23))
+* **api:** merge duplicate shows that map to the same tmdb/anilist id ([#45](https://github.com/aletc1/kyomiru/issues/45)) ([9bcbf50](https://github.com/aletc1/kyomiru/commit/9bcbf50ec4d70afa891e166fb879cb3e237777b1))
+
 ## [1.5.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.4.3...kyomiru-v1.5.0) (2026-04-25)
 
 
