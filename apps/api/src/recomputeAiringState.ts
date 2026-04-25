@@ -9,36 +9,40 @@ import { createShowRefreshQueue, enqueueShowRefresh } from './workers/showRefres
 import { logger } from './util/logger.js'
 
 async function main() {
+  const force = process.argv.includes('--force')
   const config = validateEnv()
   const db = createDbClient(config.DATABASE_URL)
   const redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: null })
   const queue = createShowRefreshQueue(redis)
 
-  // Drift detection: aired count per show, vs each user's stored total.
-  // Two pulls + a JS join keeps this in Drizzle's typed query builder rather
-  // than reaching for a correlated subquery.
-  const [ussRows, airedRows] = await Promise.all([
-    db
-      .select({ showId: userShowState.showId, totalEpisodes: userShowState.totalEpisodes })
-      .from(userShowState)
-      .where(ne(userShowState.status, 'removed')),
-    db
+  const ussRows = await db
+    .select({ showId: userShowState.showId, totalEpisodes: userShowState.totalEpisodes })
+    .from(userShowState)
+    .where(ne(userShowState.status, 'removed'))
+
+  let targetShows: Set<string>
+
+  if (force) {
+    targetShows = new Set(ussRows.map((r) => r.showId))
+    logger.info(`Enqueueing show-refresh for ${targetShows.size} show(s) (--force, all)`)
+  } else {
+    // Drift detection: aired count per show, vs each user's stored total.
+    const airedRows = await db
       .select({ showId: episodes.showId, aired: count() })
       .from(episodes)
       .where(airedEpisodesFilter())
-      .groupBy(episodes.showId),
-  ])
+      .groupBy(episodes.showId)
 
-  const airedByShow = new Map(airedRows.map((r) => [r.showId, r.aired]))
-  const driftedShows = new Set<string>()
-  for (const r of ussRows) {
-    const aired = airedByShow.get(r.showId) ?? 0
-    if (r.totalEpisodes !== aired) driftedShows.add(r.showId)
+    const airedByShow = new Map(airedRows.map((r) => [r.showId, r.aired]))
+    targetShows = new Set<string>()
+    for (const r of ussRows) {
+      const aired = airedByShow.get(r.showId) ?? 0
+      if (r.totalEpisodes !== aired) targetShows.add(r.showId)
+    }
+    logger.info(`Enqueueing show-refresh for ${targetShows.size} drifted show(s)`)
   }
 
-  logger.info(`Enqueueing show-refresh for ${driftedShows.size} drifted show(s)`)
-
-  for (const showId of driftedShows) {
+  for (const showId of targetShows) {
     await enqueueShowRefresh(queue, showId)
   }
 

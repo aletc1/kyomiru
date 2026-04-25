@@ -8,8 +8,10 @@
  * The 7-day freshness short-circuit in the enrichment worker would otherwise
  * skip these shows indefinitely. We reset `enrichedAt` so the worker re-checks.
  *
- * Run via: pnpm -F @kyomiru/api merge:scan
+ * Run via: pnpm -F @kyomiru/api merge:scan [--force]
  * Schedule: daily, after `cron:run`.
+ *
+ * `--force` bypasses the 5-attempt retry cap for one-off rescans.
  */
 import './loadEnv.js'
 import { and, isNull, isNotNull, inArray, lt } from 'drizzle-orm'
@@ -26,6 +28,7 @@ const BATCH_SIZE = 500
 const MAX_ENRICHMENT_ATTEMPTS = 5
 
 async function main() {
+  const force = process.argv.includes('--force')
   const config = validateEnv()
   const db = createDbClient(config.DATABASE_URL)
   const redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: null })
@@ -34,17 +37,17 @@ async function main() {
   // Shows enriched at least once but without a tmdb_id are the primary duplicate
   // candidates. Anime shows with no anilist_id could also be duplicates but
   // re-enriching them without a TMDB key is a no-op anyway. Skip shows whose
-  // enrichment attempts already exceeded the retry budget.
+  // enrichment attempts already exceeded the retry budget (unless --force).
   const rows = await db
     .select({ id: shows.id })
     .from(shows)
     .where(and(
       isNotNull(shows.enrichedAt),
       isNull(shows.tmdbId),
-      lt(shows.enrichmentAttempts, MAX_ENRICHMENT_ATTEMPTS),
+      ...(force ? [] : [lt(shows.enrichmentAttempts, MAX_ENRICHMENT_ATTEMPTS)]),
     ))
 
-  logger.info(`Found ${rows.length} candidate shows (enriched but no tmdb_id)`)
+  logger.info(`Found ${rows.length} candidate shows (enriched but no tmdb_id)${force ? ' (--force, ignoring attempts cap)' : ''}`)
 
   if (rows.length === 0) {
     await queue.close()

@@ -20,6 +20,7 @@
     "approved:list": "node dist/approved.js list",
     "enrichment:debug": "node dist/debugEnrichment.js",
     "queue:status": "node dist/queueStatus.js",
+    "queue:clean": "node dist/queueClean.js",
     "merge:scan": "node dist/scanDuplicateShows.js"
   },
   "dependencies": {
