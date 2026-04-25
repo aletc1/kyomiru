@@ -72,6 +72,50 @@ function ShowDetailPage() {
     return k
   }
 
+  const actionsContent = (
+    <>
+      {!isWatched && (
+        <Button
+          variant={isFavorited ? 'default' : 'outline'}
+          size="sm"
+          className="w-full sm:w-auto"
+          onClick={() => patch.mutate({ favorited: !isFavorited })}
+          disabled={patch.isPending || isRemoved}
+        >
+          {isFavorited
+            ? <><HeartOff className="h-4 w-4 mr-1.5" />{t('remove_from_queue')}</>
+            : <><Heart className="h-4 w-4 mr-1.5" />{t('add_to_queue')}</>}
+        </Button>
+      )}
+      <ProviderLinkButton providers={show.providers} kind="show" size="sm" showLabel className="w-full sm:w-auto" />
+      <JustWatchButton title={show.canonicalTitle} year={show.year} size="sm" showLabel className="w-full sm:w-auto" />
+      {isRemoved ? (
+        <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => patch.mutate({ status: 'restore' })} disabled={patch.isPending}>
+          <RotateCcw className="h-4 w-4 mr-1.5" /> {t('restore')}
+        </Button>
+      ) : (
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="sm" className="w-full sm:w-auto" disabled={patch.isPending}>
+              <Trash2 className="h-4 w-4 mr-1.5" /> {t('remove')}
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t('remove_dialog_title')}</DialogTitle>
+              <DialogDescription>
+                {t('remove_dialog_desc', { title: show.canonicalTitle })}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex gap-3 justify-end">
+              <Button variant="destructive" onClick={() => patch.mutate({ status: 'removed' })}>{t('remove')}</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
+  )
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <Button variant="ghost" size="sm" onClick={() => navigate({ to: '/library' })}>
@@ -140,48 +184,16 @@ function ShowDetailPage() {
               </span>
             )}
           </div>
-          {/* Actions */}
-          <div className="flex flex-wrap gap-2 pt-1">
-            {!isWatched && (
-              <Button
-                variant={isFavorited ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => patch.mutate({ favorited: !isFavorited })}
-                disabled={patch.isPending || isRemoved}
-              >
-                {isFavorited
-                  ? <><HeartOff className="h-4 w-4 mr-1.5" />{t('remove_from_queue')}</>
-                  : <><Heart className="h-4 w-4 mr-1.5" />{t('add_to_queue')}</>}
-              </Button>
-            )}
-            <ProviderLinkButton providers={show.providers} kind="show" size="sm" showLabel />
-            <JustWatchButton title={show.canonicalTitle} year={show.year} size="sm" showLabel />
-            {isRemoved ? (
-              <Button variant="outline" size="sm" onClick={() => patch.mutate({ status: 'restore' })} disabled={patch.isPending}>
-                <RotateCcw className="h-4 w-4 mr-1.5" /> {t('restore')}
-              </Button>
-            ) : (
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm" disabled={patch.isPending}>
-                    <Trash2 className="h-4 w-4 mr-1.5" /> {t('remove')}
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>{t('remove_dialog_title')}</DialogTitle>
-                    <DialogDescription>
-                      {t('remove_dialog_desc', { title: show.canonicalTitle })}
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="flex gap-3 justify-end">
-                    <Button variant="destructive" onClick={() => patch.mutate({ status: 'removed' })}>{t('remove')}</Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            )}
+          {/* Desktop actions: inside the meta column (original layout) */}
+          <div className="hidden sm:flex sm:flex-wrap gap-2 pt-1">
+            {actionsContent}
           </div>
         </div>
+      </div>
+
+      {/* Mobile actions: full-width below the poster row */}
+      <div className="flex flex-col gap-2 sm:hidden">
+        {actionsContent}
       </div>
 
       {show.description && (

@@ -1,6 +1,7 @@
 {
   "search_placeholder": "Rechercher des shows...",
   "toggle_view": "Changer la vue",
+  "toggle_filters": "Afficher les filtres",
   "sort_by": "Trier par",
   "sort_recent_activity": "Activité récente",
   "sort_title_asc": "Titre A-Z",
