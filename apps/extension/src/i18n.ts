@@ -1,9 +1,9 @@
-import enUS from './locales/en-US.json'
-import esES from './locales/es-ES.json'
-import frFR from './locales/fr-FR.json'
+import enUS from './locales/en-US.js'
+import esES from './locales/es-ES.js'
+import frFR from './locales/fr-FR.js'
 
-type Strings = typeof enUS
-type StringKey = keyof Strings
+type Strings = Record<string, string>
+type StringKey = keyof typeof enUS
 
 const BUNDLES: Record<string, Strings> = {
   'en-US': enUS,
