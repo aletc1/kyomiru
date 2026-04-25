@@ -278,6 +278,22 @@ kubectl -n kyomiru exec deploy/kyomiru-api -- npm run backfill:reclassify
 
 Run `backfill:translations` after adding new locales to `app.enrichmentLocales`. Run `backfill:reclassify` once after upgrading to the release containing the Animation classification fix to retroactively promote previously-misclassified shows.
 
+## Inspecting Queues
+
+Check BullMQ queue depth (waiting/active/failed counts, current active jobs, and recent waiting jobs):
+
+```bash
+kubectl -n kyomiru exec deploy/kyomiru-api -- npm run queue:status
+```
+
+Stream live job lifecycle events (`waiting`, `active`, `completed`, `failed`, `stalled`) until Ctrl-C. Use `-it` so the interrupt reaches the process:
+
+```bash
+kubectl -n kyomiru exec -it deploy/kyomiru-api -- npm run queue:status -- --watch
+```
+
+Workers run inline in the API pod — if the pod is up, workers are running. A non-zero `waiting` count with `active=0` indicates a stalled worker (check pod logs). Completed and failed jobs are auto-removed on finish, so those counts stay at 0 under normal operation.
+
 ## Upgrading
 
 ```bash

@@ -7,6 +7,7 @@ import { searchAniList, aniListTreeToSeasons } from '@kyomiru/providers/enrichme
 import { searchTMDb, fetchTMDbShowTree } from '@kyomiru/providers/enrichment/tmdb'
 import type { SeasonTree } from '@kyomiru/providers/types'
 import { upsertShowCatalog } from '../services/sync.service.js'
+import { resolveExternalIds, withExternalIdRetry } from '../services/enrichmentMerge.js'
 import { enqueueShowRefresh, type ShowRefreshJobData } from './showRefreshWorker.js'
 import { classifyKind } from '../services/classifyKind.js'
 import { logger } from '../util/logger.js'
@@ -17,6 +18,13 @@ export interface EnrichmentJobData {
   showId: string
 }
 
+const ENRICHMENT_JOB_OPTIONS = {
+  attempts: 5,
+  backoff: { type: 'exponential' as const, delay: 5_000 },
+  removeOnComplete: { age: 3600, count: 1000 },
+  removeOnFail: { age: 24 * 3600, count: 1000 },
+}
+
 export function createEnrichmentQueue(redis: Redis) {
   return new Queue<EnrichmentJobData>(ENRICHMENT_QUEUE, { connection: redis })
 }
@@ -24,11 +32,8 @@ export function createEnrichmentQueue(redis: Redis) {
 /**
  * Enqueue an enrichment job, clearing any completed/failed ghost with the same
  * jobId first. BullMQ v5 silently no-ops `add()` when a job with the given
- * jobId already exists in Redis (including terminal states), so without the
- * pre-removal a show that failed to match once would never be retried.
- *
- * removeOnComplete/removeOnFail are `true` so successful runs don't leave
- * behind ghosts that would block the next re-enqueue.
+ * jobId already exists in Redis (including terminal states). The ghost removal
+ * ensures shows that exhausted all retries get re-enqueued on the next cron run.
  */
 export async function enqueueEnrichment(
   queue: Queue<EnrichmentJobData>,
@@ -39,14 +44,10 @@ export async function enqueueEnrichment(
   if (existing) {
     const state = await existing.getState()
     if (state === 'completed' || state === 'failed') {
-      await existing.remove()
+      await existing.remove().catch(() => {})
     }
   }
-  await queue.add(
-    'enrich',
-    { showId },
-    { jobId, removeOnComplete: true, removeOnFail: true },
-  )
+  await queue.add('enrich', { showId }, { jobId, ...ENRICHMENT_JOB_OPTIONS })
 }
 
 export async function enqueuePendingEnrichment(
@@ -68,8 +69,9 @@ export function createEnrichmentWorker(
   tmdbApiKey: string | undefined,
   locales: string[],
   showRefreshQueue: Queue<ShowRefreshJobData>,
+  concurrency = 3,
 ) {
-  return new Worker<EnrichmentJobData>(
+  const worker = new Worker<EnrichmentJobData>(
     ENRICHMENT_QUEUE,
     async (job) => {
       const { showId } = job.data
@@ -171,25 +173,43 @@ export function createEnrichmentWorker(
             : (tmdbTree?.rating ?? tmdbMatch?.rating ?? null)
         const coverUrl = show.coverUrl ?? anilistMatch?.coverUrl ?? tmdbMatch?.coverUrl ?? null
         const year = show.year ?? anilistMatch?.year ?? tmdbMatch?.year ?? null
-        const tmdbId = show.tmdbId ?? tmdbMatch?.id ?? null
-        const anilistId = show.anilistId ?? anilistMatch?.id ?? null
+        const current = { tmdbId: show.tmdbId, anilistId: show.anilistId }
+        const proposed = {
+          tmdbId: show.tmdbId ?? tmdbMatch?.id ?? null,
+          anilistId: show.anilistId ?? anilistMatch?.id ?? null,
+        }
+        const resolved = await resolveExternalIds(db, showId, current, proposed)
+        for (const c of resolved.conflicts) {
+          logger.warn(
+            { showId, conflictingShowId: c.conflictingShowId, kind: c.kind, externalId: c.externalId },
+            'enrichment external id conflict — duplicate show rows',
+          )
+        }
 
-        await db.update(shows).set({
-          canonicalTitle: newCanonicalTitle,
-          titleNormalized: newCanonicalTitle.toLowerCase().replace(/[^\w\s]/g, ''),
-          description: newDescription,
-          coverUrl,
-          genres,
-          year,
-          kind: finalKind,
-          titles: mergedTitles,
-          descriptions: mergedDescriptions,
-          tmdbId,
-          anilistId,
-          rating: rating !== null && rating !== undefined ? rating.toFixed(1) : show.rating,
-          enrichedAt: new Date(),
-          enrichmentAttempts: (show.enrichmentAttempts ?? 0) + 1,
-        }).where(eq(shows.id, showId))
+        await withExternalIdRetry(
+          current,
+          { tmdbId: resolved.tmdbId, anilistId: resolved.anilistId },
+          ({ tmdbId, anilistId }) => db.update(shows).set({
+            canonicalTitle: newCanonicalTitle,
+            titleNormalized: newCanonicalTitle.toLowerCase().replace(/[^\w\s]/g, ''),
+            description: newDescription,
+            coverUrl,
+            genres,
+            year,
+            kind: finalKind,
+            titles: mergedTitles,
+            descriptions: mergedDescriptions,
+            tmdbId,
+            anilistId,
+            rating: rating !== null && rating !== undefined ? rating.toFixed(1) : show.rating,
+            enrichedAt: new Date(),
+            enrichmentAttempts: (show.enrichmentAttempts ?? 0) + 1,
+          }).where(eq(shows.id, showId)),
+          ({ kind, attempt }) => logger.warn(
+            { showId, kind, attempt },
+            'enrichment shows.{tmdb,anilist}_id race — retrying with current value',
+          ),
+        )
       } else {
         await db.update(shows)
           .set({ enrichmentAttempts: (show.enrichmentAttempts ?? 0) + 1 })
@@ -206,6 +226,28 @@ export function createEnrichmentWorker(
         matched ? `enriched ${showId}` : `no match for ${showId}`,
       )
     },
-    { connection: redis, concurrency: 3 },
+    {
+      connection: redis,
+      concurrency,
+      lockDuration: 120_000,
+      stalledInterval: 30_000,
+      maxStalledCount: 2,
+    },
   )
+
+  const q = ENRICHMENT_QUEUE
+  worker.on('completed', (job) =>
+    logger.info({ q, jobId: job.id, showId: job.data.showId, ms: Date.now() - (job.processedOn ?? Date.now()) }, 'job completed'),
+  )
+  worker.on('failed', (job, err) =>
+    logger.error({ q, jobId: job?.id, showId: job?.data.showId, attempts: job?.attemptsMade, err }, 'job failed'),
+  )
+  worker.on('stalled', (jobId) =>
+    logger.warn({ q, jobId }, 'job stalled — lock expired, will retry'),
+  )
+  worker.on('error', (err) =>
+    logger.error({ q, err }, 'worker error'),
+  )
+
+  return worker
 }

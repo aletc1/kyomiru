@@ -1,4 +1,5 @@
 import type { SeasonTree } from '../types.js'
+import { fetchWithTimeout } from '../util/fetchWithTimeout.js'
 
 const ANILIST_URL = 'https://graphql.anilist.co'
 
@@ -51,7 +52,7 @@ export interface AniListMatch {
 
 export async function searchAniList(title: string, _year?: number): Promise<AniListMatch | null> {
   try {
-    const resp = await fetch(ANILIST_URL, {
+    const resp = await fetchWithTimeout(ANILIST_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ query: MEDIA_QUERY, variables: { search: title } }),

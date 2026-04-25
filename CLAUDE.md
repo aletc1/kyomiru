@@ -38,6 +38,7 @@ pnpm -F @kyomiru/api approved:add <email> [note]   # Add email to the approved_e
 pnpm -F @kyomiru/api approved:remove <email>       # Remove email from approved_emails table
 pnpm -F @kyomiru/api approved:list                 # List all approved emails
 pnpm -F @kyomiru/api enrichment:debug <showId>     # Verbose enrichment diagnostic for a single show (dry-run; add --apply to persist)
+pnpm -F @kyomiru/api queue:status                  # Snapshot of BullMQ queue depth (waiting/active counts); add --watch to stream live job events
 ```
 
 The Docker Compose file lives at `infra/compose/docker-compose.dev.yml`.

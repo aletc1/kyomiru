@@ -41,4 +41,8 @@ Manage invite-only access (requires DISABLE_AUTO_SIGNUP=true):
   kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- npm run approved:list
   kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- npm run approved:remove -- you@example.com
 
+Inspect BullMQ queue depth (waiting/active/failed counts + live events):
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- npm run queue:status
+  kubectl -n {{ .Release.Namespace }} exec -it deploy/{{ include "kyomiru.fullname" . }}-api -- npm run queue:status -- --watch
+
 Full documentation: https://github.com/aletc1/kyomiru/blob/main/charts/kyomiru/README.md

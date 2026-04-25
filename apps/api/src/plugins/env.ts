@@ -16,6 +16,8 @@ const EnvSchema = z.object({
   ENRICHMENT_LOCALES: z.string().optional().default('en-US,ja-JP,es-ES,fr-FR').transform(
     (s) => s.split(',').map((l) => l.trim()).filter(Boolean),
   ),
+  ENRICHMENT_CONCURRENCY: z.coerce.number().int().positive().default(3),
+  SHOW_REFRESH_CONCURRENCY: z.coerce.number().int().positive().default(3),
   PROVIDERS_FIXTURE: z.string().optional(),
   SENTRY_DSN: z.string().optional(),
   MOCK_GOOGLE_AUTH_USER: z.string().email().optional(),

@@ -7,6 +7,7 @@ import { searchAniList, aniListTreeToSeasons } from '@kyomiru/providers/enrichme
 import { classifyKind } from './services/classifyKind.js'
 import { upsertShowCatalog } from './services/sync.service.js'
 import { recomputeUserShowState } from './services/stateMachine.js'
+import { resolveExternalIds, withExternalIdRetry } from './services/enrichmentMerge.js'
 import { validateEnv } from './plugins/env.js'
 
 const TMDB_BASE = 'https://api.themoviedb.org/3'
@@ -14,6 +15,7 @@ const ANILIST_URL = 'https://graphql.anilist.co'
 const CONFIDENCE_THRESHOLD = 0.8
 const ANIME_PROMOTION_THRESHOLD = 0.9
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+const LABEL_WIDTH = 18
 
 function hr(label: string) {
   const width = 64
@@ -417,8 +419,11 @@ async function main() {
 
     const coverUrl = show.coverUrl ?? anilistMatch?.coverUrl ?? tmdbMatch?.coverUrl ?? null
     const year = show.year ?? anilistMatch?.year ?? tmdbMatch?.year ?? null
-    const tmdbId = show.tmdbId ?? tmdbMatch?.id ?? null
-    const anilistId = show.anilistId ?? anilistMatch?.id ?? null
+    const { tmdbId, anilistId, conflicts: externalIdConflicts } = await resolveExternalIds(
+      db, showId,
+      { tmdbId: show.tmdbId, anilistId: show.anilistId },
+      { tmdbId: show.tmdbId ?? tmdbMatch?.id ?? null, anilistId: show.anilistId ?? anilistMatch?.id ?? null },
+    )
 
     let seasonTrees = tmdbTree?.seasons ?? []
     if (anilistMatch) {
@@ -429,14 +434,24 @@ async function main() {
     function diff<T>(label: string, current: T, proposed: T): string {
       const changed = JSON.stringify(current) !== JSON.stringify(proposed)
       const tag = changed ? ' [CHANGED]' : ''
-      return `  ${label.padEnd(18)}: ${JSON.stringify(proposed)}${tag}`
+      return `  ${label.padEnd(LABEL_WIDTH)}: ${JSON.stringify(proposed)}${tag}`
     }
 
     const ratingProposed = rating !== null && rating !== undefined ? rating.toFixed(1) : null
     console.log(diff('canonicalTitle', show.canonicalTitle, newCanonicalTitle))
     console.log(diff('kind', show.kind, finalKind))
-    console.log(diff('tmdbId', show.tmdbId, tmdbId))
-    console.log(diff('anilistId', show.anilistId, anilistId))
+    const tmdbConflict = externalIdConflicts.find((c) => c.kind === 'tmdb')
+    const anilistConflict = externalIdConflicts.find((c) => c.kind === 'anilist')
+    if (tmdbConflict) {
+      console.log(`  ${'tmdbId'.padEnd(LABEL_WIDTH)}: ${tmdbConflict.externalId} [SKIPPED — duplicate of show ${tmdbConflict.conflictingShowId} "${tmdbConflict.conflictingCanonicalTitle}"]`)
+    } else {
+      console.log(diff('tmdbId', show.tmdbId, tmdbId))
+    }
+    if (anilistConflict) {
+      console.log(`  ${'anilistId'.padEnd(LABEL_WIDTH)}: ${anilistConflict.externalId} [SKIPPED — duplicate of show ${anilistConflict.conflictingShowId} "${anilistConflict.conflictingCanonicalTitle}"]`)
+    } else {
+      console.log(diff('anilistId', show.anilistId, anilistId))
+    }
     console.log(diff('year', show.year, year))
     console.log(diff('genres', show.genres, genres))
     console.log(diff('rating', show.rating, ratingProposed))
@@ -446,27 +461,32 @@ async function main() {
     console.log(diff('desc locales', Object.keys(descsMap), Object.keys(mergedDescs)))
 
     const totalNewEps = seasonTrees.reduce((n, s) => n + s.episodes.length, 0)
-    console.log(`  ${'season tree'.padEnd(18)}: ${seasonTrees.length} season(s), ${totalNewEps} episode(s) total`)
+    console.log(`  ${'season tree'.padEnd(LABEL_WIDTH)}: ${seasonTrees.length} season(s), ${totalNewEps} episode(s) total`)
 
     if (apply) {
       hr('Applying')
 
-      await db.update(shows).set({
-        canonicalTitle: newCanonicalTitle,
-        titleNormalized: newCanonicalTitle.toLowerCase().replace(/[^\w\s]/g, ''),
-        description: newDescription,
-        coverUrl,
-        genres,
-        year,
-        kind: finalKind,
-        titles: mergedTitles,
-        descriptions: mergedDescs,
-        tmdbId,
-        anilistId,
-        rating: ratingProposed,
-        enrichedAt: new Date(),
-        enrichmentAttempts: (show.enrichmentAttempts ?? 0) + 1,
-      }).where(eq(shows.id, showId))
+      await withExternalIdRetry(
+        { tmdbId: show.tmdbId, anilistId: show.anilistId },
+        { tmdbId, anilistId },
+        ({ tmdbId, anilistId }) => db.update(shows).set({
+          canonicalTitle: newCanonicalTitle,
+          titleNormalized: newCanonicalTitle.toLowerCase().replace(/[^\w\s]/g, ''),
+          description: newDescription,
+          coverUrl,
+          genres,
+          year,
+          kind: finalKind,
+          titles: mergedTitles,
+          descriptions: mergedDescs,
+          tmdbId,
+          anilistId,
+          rating: ratingProposed,
+          enrichedAt: new Date(),
+          enrichmentAttempts: (show.enrichmentAttempts ?? 0) + 1,
+        }).where(eq(shows.id, showId)),
+        ({ kind, attempt }) => console.log(`  ⚠ race on shows.${kind}_id (attempt ${attempt}) — retrying with current value`),
+      )
       console.log('  ✓ show row updated')
 
       if (seasonTrees.length > 0) {

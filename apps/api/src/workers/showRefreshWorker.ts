@@ -12,6 +12,13 @@ export interface ShowRefreshJobData {
   showId: string
 }
 
+const SHOW_REFRESH_JOB_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 2_000 },
+  removeOnComplete: { age: 3600, count: 1000 },
+  removeOnFail: { age: 24 * 3600, count: 1000 },
+}
+
 export function createShowRefreshQueue(redis: Redis) {
   return new Queue<ShowRefreshJobData>(SHOW_REFRESH_QUEUE, { connection: redis })
 }
@@ -25,10 +32,10 @@ export async function enqueueShowRefresh(
   if (existing) {
     const state = await existing.getState()
     if (state === 'completed' || state === 'failed') {
-      await existing.remove()
+      await existing.remove().catch(() => {})
     }
   }
-  await queue.add('refresh', { showId }, { jobId, removeOnComplete: true, removeOnFail: true })
+  await queue.add('refresh', { showId }, { jobId, ...SHOW_REFRESH_JOB_OPTIONS })
 }
 
 async function refreshLatestAirDate(db: DbClient, showId: string): Promise<void> {
@@ -41,8 +48,8 @@ async function refreshLatestAirDate(db: DbClient, showId: string): Promise<void>
   }
 }
 
-export function createShowRefreshWorker(db: DbClient, redis: Redis) {
-  return new Worker<ShowRefreshJobData>(
+export function createShowRefreshWorker(db: DbClient, redis: Redis, concurrency = 3) {
+  const worker = new Worker<ShowRefreshJobData>(
     SHOW_REFRESH_QUEUE,
     async (job) => {
       const { showId } = job.data
@@ -61,6 +68,28 @@ export function createShowRefreshWorker(db: DbClient, redis: Redis) {
 
       logger.info({ showId, users: libraryRows.length }, `refreshed show state ${showId}`)
     },
-    { connection: redis, concurrency: 3 },
+    {
+      connection: redis,
+      concurrency,
+      lockDuration: 30_000,
+      stalledInterval: 30_000,
+      maxStalledCount: 2,
+    },
   )
+
+  const q = SHOW_REFRESH_QUEUE
+  worker.on('completed', (job) =>
+    logger.info({ q, jobId: job.id, showId: job.data.showId, ms: Date.now() - (job.processedOn ?? Date.now()) }, 'job completed'),
+  )
+  worker.on('failed', (job, err) =>
+    logger.error({ q, jobId: job?.id, showId: job?.data.showId, attempts: job?.attemptsMade, err }, 'job failed'),
+  )
+  worker.on('stalled', (jobId) =>
+    logger.warn({ q, jobId }, 'job stalled — lock expired, will retry'),
+  )
+  worker.on('error', (err) =>
+    logger.error({ q, err }, 'worker error'),
+  )
+
+  return worker
 }
