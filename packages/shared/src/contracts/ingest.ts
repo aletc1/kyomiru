@@ -111,10 +111,11 @@ export const IngestResolveShowSchema = z.object({
   externalShowId: z.string(),
   known: z.boolean(),
   catalogSyncedAt: z.string().datetime().nullable(),
-  // Keys are season numbers (stringified); values are the max known episode number.
-  // Replaces the old flat maxSeasonNumber/maxEpisodeNumber pair so the extension
-  // can check coverage per-season instead of only for the highest season.
-  seasonCoverage: z.record(z.string(), z.number().int().nonnegative()),
+  // Keys are season numbers (stringified); values are the sorted list of
+  // episode numbers that have a provider mapping in episode_providers. Using a
+  // set instead of MAX lets the extension detect sparse coverage (e.g. only ep
+  // 13 mapped) and force a slow-path catalog refetch to fill the gaps.
+  seasonCoverage: z.record(z.string(), z.array(z.number().int().nonnegative())),
 })
 
 export const IngestResolveResponseSchema = z.object({

@@ -1,4 +1,4 @@
-import { eq, and, sql, inArray } from 'drizzle-orm'
+import { eq, and, ne, or, sql, inArray } from 'drizzle-orm'
 import type { Queue } from 'bullmq'
 import type { Redis } from 'ioredis'
 import type { DbClient } from '@kyomiru/db/client'
@@ -434,6 +434,108 @@ async function markRunError(db: DbClient, runId: string, counters: IngestCounter
 }
 
 /**
+ * Fallback episode resolution for items whose externalItemId has no match in
+ * episode_providers. Uses (season_number, episode_number) from item.raw to
+ * recover items when a provider exposes different IDs in watch history vs
+ * catalog endpoints (e.g. Crunchyroll panel IDs vs CMS episode IDs).
+ *
+ * When an episode is found, the stale catalog ID in episode_providers is replaced
+ * with the working external ID so subsequent fast-path syncs resolve directly.
+ */
+async function resolveItemsByMetadata(
+  db: DbClient,
+  providerKey: string,
+  unmatchedItems: HistoryItem[],
+  showIdByExtId: Map<string, string>,
+  episodeIdByExtItemId: Map<string, string>,
+): Promise<void> {
+  type Candidate = { item: HistoryItem; showId: string; seasonNumber: number; episodeNumber: number }
+  const candidates: Candidate[] = []
+  for (const item of unmatchedItems) {
+    if (!item.externalShowId) continue
+    const showId = showIdByExtId.get(item.externalShowId)
+    if (!showId) continue
+    const raw = item.raw as Record<string, unknown> | null | undefined
+    const seasonNumber = typeof raw?.season_number === 'number' ? Math.floor(raw.season_number) : undefined
+    const episodeNumber = typeof raw?.episode_number === 'number' ? Math.floor(raw.episode_number) : undefined
+    if (seasonNumber === undefined || episodeNumber === undefined) continue
+    candidates.push({ item, showId, seasonNumber, episodeNumber })
+  }
+  if (candidates.length === 0) return
+
+  const byShow = new Map<string, Candidate[]>()
+  for (const c of candidates) {
+    if (!byShow.has(c.showId)) byShow.set(c.showId, [])
+    byShow.get(c.showId)!.push(c)
+  }
+
+  for (const [showId, showCandidates] of byShow) {
+    const seasonNumbers = [...new Set(showCandidates.map((c) => c.seasonNumber))]
+
+    const seasonRows = await db
+      .select({ id: seasons.id, seasonNumber: seasons.seasonNumber })
+      .from(seasons)
+      .where(and(eq(seasons.showId, showId), inArray(seasons.seasonNumber, seasonNumbers)))
+    const seasonIdByNumber = new Map(seasonRows.map((s) => [s.seasonNumber, s.id]))
+
+    const seasonIds = [...seasonIdByNumber.values()]
+    if (seasonIds.length === 0) continue
+
+    const epRows = await db
+      .select({ id: episodes.id, seasonId: episodes.seasonId, episodeNumber: episodes.episodeNumber })
+      .from(episodes)
+      .where(inArray(episodes.seasonId, seasonIds))
+    const episodeIdByKey = new Map(epRows.map((e) => [`${e.seasonId}:${e.episodeNumber}`, e.id]))
+
+    // Dedupe by episodeId: if multiple items in this chunk resolve to the same
+    // episode (e.g. two different panel IDs for the same dub/sub variant), only
+    // the first one's external ID is persisted to episode_providers. The other
+    // items still get resolved in-memory via episodeIdByExtItemId so progress is
+    // attributed correctly for this chunk; subsequent syncs reach the same
+    // episode through this fallback again.
+    const resolvedByEpisode = new Map<string, { item: HistoryItem; episodeId: string }>()
+    for (const c of showCandidates) {
+      const seasonId = seasonIdByNumber.get(c.seasonNumber)
+      if (!seasonId) continue
+      const episodeId = episodeIdByKey.get(`${seasonId}:${c.episodeNumber}`)
+      if (!episodeId) continue
+      episodeIdByExtItemId.set(c.item.externalItemId, episodeId)
+      if (!resolvedByEpisode.has(episodeId)) {
+        resolvedByEpisode.set(episodeId, { item: c.item, episodeId })
+      }
+    }
+    const resolved = [...resolvedByEpisode.values()]
+    if (resolved.length === 0) continue
+
+    // Replace stale external IDs with the working ones so future fast-path syncs
+    // resolve directly. Single DELETE per show: drop any row whose (episode_id,
+    // external_id) pair contradicts what we're about to insert. Using OR over
+    // each (episode_id, !=external_id) pair (rather than a NOT IN over all new
+    // external IDs) is correct even if the same external ID appears twice for
+    // different episodes — it only deletes the row that conflicts with this
+    // episode's incoming mapping.
+    await db.delete(episodeProviders)
+      .where(and(
+        eq(episodeProviders.providerKey, providerKey),
+        or(...resolved.map((r) => and(
+          eq(episodeProviders.episodeId, r.episodeId),
+          ne(episodeProviders.externalId, r.item.externalItemId),
+        ))),
+      ))
+
+    for (let i = 0; i < resolved.length; i += INSERT_BATCH) {
+      await db.insert(episodeProviders)
+        .values(resolved.slice(i, i + INSERT_BATCH).map((r) => ({
+          episodeId: r.episodeId,
+          providerKey,
+          externalId: r.item.externalItemId,
+        })))
+        .onConflictDoNothing()
+    }
+  }
+}
+
+/**
  * Ingest one chunk of items+shows against an already-running sync run.
  *
  * Uses bulk SQL (one query per table, batched by INSERT_BATCH rows) rather
@@ -540,6 +642,17 @@ export async function ingestChunk(
           inArray(episodeProviders.externalId, slice),
         ))
       for (const r of epRows) episodeIdByExtItemId.set(r.externalId, r.episodeId)
+    }
+
+    // ── Step 4.5: Fallback resolution for items whose panel ID has no episode_providers match ──
+    // Some providers (e.g. Crunchyroll) expose different IDs in watch history (panel IDs) vs
+    // the catalog endpoint (episode IDs). When the direct lookup above finds no match, we fall
+    // back to resolving by (show_id, season_number, episode_number) stored in the item's raw
+    // metadata. On a successful match we also replace the stale catalog ID in episode_providers
+    // with the working panel ID so subsequent fast-path syncs resolve directly without this step.
+    const unmatchedItems = items.filter((item) => !episodeIdByExtItemId.has(item.externalItemId))
+    if (unmatchedItems.length > 0) {
+      await resolveItemsByMetadata(db, providerKey, unmatchedItems, showIdByExtId, episodeIdByExtItemId)
     }
 
     // ── Step 5: Resolve episode → showId ─────────────────────────────────────
@@ -938,8 +1051,8 @@ export interface ResolvedShowCatalog {
   externalShowId: string
   known: boolean
   catalogSyncedAt: Date | null
-  /** seasonNumber → max episode number known to be in episode_providers */
-  seasonCoverage: Record<number, number>
+  /** seasonNumber → sorted distinct episode numbers that have a provider mapping */
+  seasonCoverage: Record<number, number[]>
 }
 
 /**
@@ -970,14 +1083,14 @@ export async function resolveShowCatalogStatus(
   const knownByExternalId = new Map(spRows.map((r) => [r.externalId, r]))
   const knownShowIds = spRows.map((r) => r.showId)
 
-  const showCoverageMap = new Map<string, Record<number, number>>()
+  const showCoverageMap = new Map<string, Record<number, number[]>>()
 
   if (knownShowIds.length > 0) {
     const epRows = await db
       .select({
         showId: episodes.showId,
         seasonNumber: seasons.seasonNumber,
-        maxEpisode: sql<number>`MAX(${episodes.episodeNumber})`,
+        episodeNumber: episodes.episodeNumber,
       })
       .from(episodeProviders)
       .innerJoin(episodes, eq(episodeProviders.episodeId, episodes.id))
@@ -986,12 +1099,20 @@ export async function resolveShowCatalogStatus(
         eq(episodeProviders.providerKey, providerKey),
         inArray(episodes.showId, knownShowIds),
       ))
-      .groupBy(episodes.showId, seasons.seasonNumber)
 
     for (const row of epRows) {
       const coverage = showCoverageMap.get(row.showId) ?? {}
-      coverage[row.seasonNumber] = Number(row.maxEpisode)
+      const arr = coverage[row.seasonNumber] ?? []
+      arr.push(row.episodeNumber)
+      coverage[row.seasonNumber] = arr
       showCoverageMap.set(row.showId, coverage)
+    }
+
+    for (const coverage of showCoverageMap.values()) {
+      for (const s of Object.keys(coverage)) {
+        const n = Number(s)
+        coverage[n] = [...new Set(coverage[n])].sort((a, b) => a - b)
+      }
     }
   }
 

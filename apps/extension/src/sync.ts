@@ -50,7 +50,7 @@ export class KyomiruAuthError extends Error {
 interface ResolveShowInfo {
   known: boolean
   catalogSyncedAt: string | null
-  seasonCoverage: Record<string, number>
+  seasonCoverage: Record<string, number[]>
 }
 
 async function apiPost<T>(api: ApiConfig, path: string, body: unknown): Promise<{ ok: true; data: T } | { ok: false; status: number; body: string }> {
@@ -164,9 +164,9 @@ export function isSeriesFresh(
     const s = item.seasonNumber
     const e = item.episodeNumber
     if (s === undefined || e === undefined) continue
-    const maxEp = info.seasonCoverage[String(s)]
-    if (maxEp === undefined) return false
-    if (e > maxEp) return false
+    const mapped = info.seasonCoverage[String(s)]
+    if (!mapped) return false
+    if (!mapped.includes(e)) return false
   }
   return true
 }

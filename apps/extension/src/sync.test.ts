@@ -23,34 +23,49 @@ describe('isSeriesFresh', () => {
     expect(isSeriesFresh({ known: true, catalogSyncedAt: null, seasonCoverage: {} }, [makeItem(1, 1)])).toBe(false)
   })
 
-  it('returns true when all items fall within per-season coverage', () => {
-    const info = { known: true, catalogSyncedAt: null, seasonCoverage: { '1': 12, '2': 6 } }
+  it('returns true when all items are in the mapped episode set', () => {
+    const info = { known: true, catalogSyncedAt: null, seasonCoverage: { '1': [1,2,3,4,5,6,7,8,9,10,11,12], '2': [1,2,3,4,5,6] } }
     expect(isSeriesFresh(info, [makeItem(1, 12), makeItem(2, 5)])).toBe(true)
   })
 
-  it('returns false when an item episode exceeds its season coverage', () => {
-    const info = { known: true, catalogSyncedAt: null, seasonCoverage: { '1': 10, '2': 6 } }
+  it('returns false when an item episode is not in the mapped set', () => {
+    const info = { known: true, catalogSyncedAt: null, seasonCoverage: { '1': [1,2,3,4,5,6,7,8,9,10], '2': [1,2,3,4,5,6] } }
     expect(isSeriesFresh(info, [makeItem(1, 11)])).toBe(false)
   })
 
-  it('returns false when an item season is not in coverage at all (regression: old bug)', () => {
-    const info = { known: true, catalogSyncedAt: null, seasonCoverage: { '2': 6 } }
+  it('returns false when an item season is not in coverage at all', () => {
+    const info = { known: true, catalogSyncedAt: null, seasonCoverage: { '2': [1,2,3,4,5,6] } }
     expect(isSeriesFresh(info, [makeItem(1, 999)])).toBe(false)
   })
 
   it('ignores items without season/episode metadata', () => {
-    const info = { known: true, catalogSyncedAt: null, seasonCoverage: { '1': 10 } }
+    const info = { known: true, catalogSyncedAt: null, seasonCoverage: { '1': [1,2,3,4,5,6,7,8,9,10] } }
     expect(isSeriesFresh(info, [orphanItem, makeItem(1, 5)])).toBe(true)
   })
 
   it('returns true for an empty history list when series is known', () => {
-    const info = { known: true, catalogSyncedAt: null, seasonCoverage: { '1': 10 } }
+    const info = { known: true, catalogSyncedAt: null, seasonCoverage: { '1': [1,2,3,4,5,6,7,8,9,10] } }
     expect(isSeriesFresh(info, [])).toBe(true)
+  })
+
+  it('returns false when coverage is sparse and the watched episode is in the gap (regression: ep 13 only bug)', () => {
+    // Simulates the state where a catalog fetch failed and only the last-watched
+    // episode (13) has an episode_providers mapping. MAX-based coverage would
+    // report {1: 13} and incorrectly call this show "fresh", causing 12 items
+    // to be silently dropped. With membership checks this correctly forces a
+    // slow-path catalog refetch.
+    const info = { known: true, catalogSyncedAt: null, seasonCoverage: { '1': [13] } }
+    expect(isSeriesFresh(info, [makeItem(1, 7)])).toBe(false)
+  })
+
+  it('returns false when coverage has gaps even if the history episode is below the max', () => {
+    const info = { known: true, catalogSyncedAt: null, seasonCoverage: { '1': [1, 2, 3, 13] } }
+    expect(isSeriesFresh(info, [makeItem(1, 7)])).toBe(false)
   })
 })
 
 describe('classifyShowIds', () => {
-  const freshInfo = { known: true, catalogSyncedAt: null, seasonCoverage: { '1': 10 } }
+  const freshInfo = { known: true, catalogSyncedAt: null, seasonCoverage: { '1': [1,2,3,4,5,6,7,8,9,10] } }
   const unknownInfo = { known: false, catalogSyncedAt: null, seasonCoverage: {} }
 
   it('classifies known+fresh shows as fresh', () => {

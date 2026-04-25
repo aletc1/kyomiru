@@ -5,7 +5,7 @@ import { inArray, eq, and } from 'drizzle-orm'
 import { createDbClient, type DbClient } from '@kyomiru/db/client'
 import {
   shows, showProviders, seasons, episodes, episodeProviders,
-  users, userShowState,
+  users, userShowState, userEpisodeProgress,
 } from '@kyomiru/db/schema'
 import { randomUUID } from 'node:crypto'
 import {
@@ -14,6 +14,7 @@ import {
   mergeEpisodeInBatch,
   ingestChunk,
   reResolveOrphanedEpisodes,
+  resolveShowCatalogStatus,
   type SeasonInsertValue,
 } from '../services/sync.service.js'
 import { mergeShows } from '../services/showMerge.js'
@@ -222,6 +223,175 @@ describe.skipIf(!DATABASE_URL || !REDIS_URL)('ingestChunk (DB + Redis)', () => {
     expect(rows[0]?.status).toBe('in_progress')
   })
 
+  it('resolves items via metadata fallback and rewrites stale episode_providers (regression: Crunchyroll panel-id mismatch)', async () => {
+    // Crunchyroll exposes different IDs in watch history (panel.id) vs the catalog
+    // endpoint (episode.id). When the catalog path stores episode IDs that never
+    // match incoming panel IDs, items would silently be skipped. The fallback in
+    // ingestChunk must resolve them by (season_number, episode_number) from raw
+    // metadata and replace the stale external_id so future syncs resolve directly.
+    const userId = await makeUser()
+    const showId = await makeShow()
+    await db.insert(showProviders).values({
+      showId, providerKey: 'crunchyroll', externalId: 'cr-show-frieren',
+    }).onConflictDoNothing()
+
+    const [season] = await db.insert(seasons).values({
+      showId, seasonNumber: 2, episodeCount: 2, titles: {},
+    }).returning({ id: seasons.id })
+    const [ep1] = await db.insert(episodes).values({
+      seasonId: season!.id, showId, episodeNumber: 1, titles: {}, descriptions: {},
+    }).returning({ id: episodes.id })
+    const [ep2] = await db.insert(episodes).values({
+      seasonId: season!.id, showId, episodeNumber: 2, titles: {}, descriptions: {},
+    }).returning({ id: episodes.id })
+
+    // Seed episode_providers with the WRONG (catalog-style) external IDs that
+    // will never appear in watch history.
+    await db.insert(episodeProviders).values([
+      { episodeId: ep1!.id, providerKey: 'crunchyroll', externalId: 'cr-catalog-ep1' },
+      { episodeId: ep2!.id, providerKey: 'crunchyroll', externalId: 'cr-catalog-ep2' },
+    ]).onConflictDoNothing()
+
+    // Send items with PANEL IDs (do not match episode_providers) plus season/
+    // episode numbers in raw, which is what the Crunchyroll adapter emits.
+    await ingestChunk(
+      db, userId, 'crunchyroll',
+      [
+        {
+          externalItemId: 'cr-panel-ep1',
+          externalShowId: 'cr-show-frieren',
+          watchedAt: new Date('2024-06-01'),
+          fullyWatched: true,
+          raw: { season_number: 2, episode_number: 1 },
+        },
+        {
+          externalItemId: 'cr-panel-ep2',
+          externalShowId: 'cr-show-frieren',
+          watchedAt: new Date('2024-06-02'),
+          fullyWatched: true,
+          raw: { season_number: 2, episode_number: 2 },
+        },
+      ],
+      [],
+      randomUUID(),
+      null,
+      redis,
+    )
+
+    // Both items must have been resolved (not skipped) and a user_episode_progress
+    // row created for each — the user_show_state aggregate is filled in later by
+    // finalizeIngestRun → recomputeUserShowState, so we check progress directly.
+    const progress = await db.select().from(userEpisodeProgress)
+      .where(and(eq(userEpisodeProgress.userId, userId), inArray(userEpisodeProgress.episodeId, [ep1!.id, ep2!.id])))
+    expect(progress).toHaveLength(2)
+    expect(progress.every((r) => r.watched)).toBe(true)
+
+    // Stale catalog IDs should have been replaced with the panel IDs so future
+    // fast-path syncs (items-only chunks) resolve directly via episode_providers.
+    const eps = await db.select({ episodeId: episodeProviders.episodeId, externalId: episodeProviders.externalId })
+      .from(episodeProviders)
+      .where(and(
+        eq(episodeProviders.providerKey, 'crunchyroll'),
+        inArray(episodeProviders.episodeId, [ep1!.id, ep2!.id]),
+      ))
+    const byEp = new Map(eps.map((r) => [r.episodeId, r.externalId]))
+    expect(byEp.get(ep1!.id)).toBe('cr-panel-ep1')
+    expect(byEp.get(ep2!.id)).toBe('cr-panel-ep2')
+  })
+
+  it('does not skip an item whose external ID already matches even when other items in the chunk go through the metadata fallback', async () => {
+    // Mixed chunk: ep1 has the correct mapping in episode_providers, ep2 needs
+    // the metadata fallback. Both must be ingested.
+    const userId = await makeUser()
+    const showId = await makeShow()
+    await db.insert(showProviders).values({
+      showId, providerKey: 'crunchyroll', externalId: 'cr-show-mixed',
+    }).onConflictDoNothing()
+
+    const [season] = await db.insert(seasons).values({
+      showId, seasonNumber: 1, episodeCount: 2, titles: {},
+    }).returning({ id: seasons.id })
+    const [ep1] = await db.insert(episodes).values({
+      seasonId: season!.id, showId, episodeNumber: 1, titles: {}, descriptions: {},
+    }).returning({ id: episodes.id })
+    const [ep2] = await db.insert(episodes).values({
+      seasonId: season!.id, showId, episodeNumber: 2, titles: {}, descriptions: {},
+    }).returning({ id: episodes.id })
+    await db.insert(episodeProviders).values([
+      { episodeId: ep1!.id, providerKey: 'crunchyroll', externalId: 'cr-panel-mixed-ep1' },
+      { episodeId: ep2!.id, providerKey: 'crunchyroll', externalId: 'cr-catalog-mixed-ep2' },
+    ]).onConflictDoNothing()
+
+    await ingestChunk(
+      db, userId, 'crunchyroll',
+      [
+        {
+          externalItemId: 'cr-panel-mixed-ep1',
+          externalShowId: 'cr-show-mixed',
+          watchedAt: new Date('2024-06-01'),
+          fullyWatched: true,
+          raw: { season_number: 1, episode_number: 1 },
+        },
+        {
+          externalItemId: 'cr-panel-mixed-ep2',
+          externalShowId: 'cr-show-mixed',
+          watchedAt: new Date('2024-06-02'),
+          fullyWatched: true,
+          raw: { season_number: 1, episode_number: 2 },
+        },
+      ],
+      [],
+      randomUUID(),
+      null,
+      redis,
+    )
+
+    const progress = await db.select().from(userEpisodeProgress)
+      .where(and(eq(userEpisodeProgress.userId, userId), inArray(userEpisodeProgress.episodeId, [ep1!.id, ep2!.id])))
+    expect(progress).toHaveLength(2)
+    expect(progress.every((r) => r.watched)).toBe(true)
+
+    // ep1's mapping was already correct and should not have been disturbed.
+    const ep1Row = await db.select().from(episodeProviders)
+      .where(and(eq(episodeProviders.episodeId, ep1!.id), eq(episodeProviders.providerKey, 'crunchyroll')))
+    expect(ep1Row[0]?.externalId).toBe('cr-panel-mixed-ep1')
+    // ep2's stale catalog ID should now be the working panel ID.
+    const ep2Row = await db.select().from(episodeProviders)
+      .where(and(eq(episodeProviders.episodeId, ep2!.id), eq(episodeProviders.providerKey, 'crunchyroll')))
+    expect(ep2Row[0]?.externalId).toBe('cr-panel-mixed-ep2')
+  })
+
+  it('skips items via the metadata fallback when raw lacks season/episode numbers', async () => {
+    // Items that arrive without season/episode metadata cannot be resolved by the
+    // fallback and must remain skipped (counted as itemsSkipped, no FK violations).
+    const userId = await makeUser()
+    const showId = await makeShow()
+    await db.insert(showProviders).values({
+      showId, providerKey: 'crunchyroll', externalId: 'cr-show-noraw',
+    }).onConflictDoNothing()
+    await makeSeasonAndEpisode(showId, 'cr-catalog-noraw-ep1')
+
+    await ingestChunk(
+      db, userId, 'crunchyroll',
+      [{
+        externalItemId: 'cr-panel-noraw-ep1',
+        externalShowId: 'cr-show-noraw',
+        watchedAt: new Date('2024-06-01'),
+        fullyWatched: true,
+        raw: {},
+      }],
+      [],
+      randomUUID(),
+      null,
+      redis,
+    )
+
+    // No progress row should exist — the item couldn't be resolved.
+    const progress = await db.select().from(userEpisodeProgress)
+      .where(eq(userEpisodeProgress.userId, userId))
+    expect(progress).toHaveLength(0)
+  })
+
   it('creates user_show_state for the canonical show after mergeShows migrates episode_providers', async () => {
     // Regression for the merge-race bug: a show available on both Crunchyroll and
     // Netflix (e.g. Frieren) ends up as two separate rows. Enrichment detects the
@@ -357,5 +527,131 @@ describe.skipIf(!DATABASE_URL)('reResolveOrphanedEpisodes (DB)', () => {
     // and filter the item out.
     expect(episodeIdByExtItemId.get('cr-vanished-01')).toBe(stalePhantomId)
     expect(stillExistingEpSet.size).toBe(0)
+  })
+})
+
+describe.skipIf(!DATABASE_URL)('resolveShowCatalogStatus (DB)', () => {
+  let db: DbClient
+  const createdShowIds: string[] = []
+
+  beforeAll(() => {
+    db = createDbClient(DATABASE_URL!)
+  })
+
+  afterEach(async () => {
+    if (createdShowIds.length > 0) {
+      await db.delete(shows).where(inArray(shows.id, createdShowIds))
+      createdShowIds.length = 0
+    }
+  })
+
+  it('returns sparse episode set when only the last episode has a provider mapping (regression: ep-13-only bug)', async () => {
+    // Simulates the database state produced when a catalog fetch fails and the
+    // history-only fallback writes only the watched episode, then enrichment
+    // later fills `episodes` (providerKey=null, no episode_providers rows).
+    // resolveShowCatalogStatus must return the actual mapped set [13], not MAX=13,
+    // so isSeriesFresh forces a slow-path catalog refetch.
+    const s = Math.random().toString(36).slice(2, 8)
+    const title = `Isekai Test Show ${s}`
+    const [show] = await db.insert(shows).values({
+      canonicalTitle: title,
+      titleNormalized: title.toLowerCase(),
+      titles: { en: title },
+      descriptions: {},
+    }).returning({ id: shows.id })
+    createdShowIds.push(show!.id)
+
+    const extShowId = `cr-isekai-${s}`
+    await db.insert(showProviders).values({
+      showId: show!.id,
+      providerKey: 'crunchyroll',
+      externalId: extShowId,
+    }).onConflictDoNothing()
+
+    const [season] = await db.insert(seasons).values({
+      showId: show!.id, seasonNumber: 1, episodeCount: 13, titles: {},
+    }).returning({ id: seasons.id })
+
+    // Insert all 13 episodes (as enrichment from TMDb would) — but only wire
+    // episode 13 to Crunchyroll via episode_providers.
+    const epIds: string[] = []
+    for (let n = 1; n <= 13; n++) {
+      const [ep] = await db.insert(episodes).values({
+        seasonId: season!.id, showId: show!.id, episodeNumber: n, titles: {}, descriptions: {},
+      }).returning({ id: episodes.id })
+      epIds.push(ep!.id)
+    }
+    await db.insert(episodeProviders).values({
+      episodeId: epIds[12]!, // only ep 13 (index 12)
+      providerKey: 'crunchyroll',
+      externalId: `cr-panel-ep13-${s}`,
+    }).onConflictDoNothing()
+
+    const results = await resolveShowCatalogStatus(db, 'crunchyroll', [extShowId])
+    expect(results).toHaveLength(1)
+    const result = results[0]!
+    expect(result.known).toBe(true)
+    // Must reflect the actual mapped set, not MAX(episode_number).
+    expect(result.seasonCoverage).toEqual({ 1: [13] })
+  })
+
+  it('returns full dense episode set when all episodes are mapped', async () => {
+    const s = Math.random().toString(36).slice(2, 8)
+    const title = `Full Show ${s}`
+    const [show] = await db.insert(shows).values({
+      canonicalTitle: title,
+      titleNormalized: title.toLowerCase(),
+      titles: { en: title },
+      descriptions: {},
+    }).returning({ id: shows.id })
+    createdShowIds.push(show!.id)
+
+    const extShowId = `cr-full-${s}`
+    await db.insert(showProviders).values({
+      showId: show!.id,
+      providerKey: 'crunchyroll',
+      externalId: extShowId,
+    }).onConflictDoNothing()
+
+    const [season] = await db.insert(seasons).values({
+      showId: show!.id, seasonNumber: 1, episodeCount: 3, titles: {},
+    }).returning({ id: seasons.id })
+
+    for (let n = 1; n <= 3; n++) {
+      const [ep] = await db.insert(episodes).values({
+        seasonId: season!.id, showId: show!.id, episodeNumber: n, titles: {}, descriptions: {},
+      }).returning({ id: episodes.id })
+      await db.insert(episodeProviders).values({
+        episodeId: ep!.id,
+        providerKey: 'crunchyroll',
+        externalId: `cr-panel-ep${n}-${s}`,
+      }).onConflictDoNothing()
+    }
+
+    const results = await resolveShowCatalogStatus(db, 'crunchyroll', [extShowId])
+    expect(results[0]?.seasonCoverage).toEqual({ 1: [1, 2, 3] })
+  })
+
+  it('returns empty seasonCoverage for a known show with no episode_providers rows', async () => {
+    const s = Math.random().toString(36).slice(2, 8)
+    const title = `No-EP Show ${s}`
+    const [show] = await db.insert(shows).values({
+      canonicalTitle: title,
+      titleNormalized: title.toLowerCase(),
+      titles: { en: title },
+      descriptions: {},
+    }).returning({ id: shows.id })
+    createdShowIds.push(show!.id)
+
+    const extShowId = `cr-noep-${s}`
+    await db.insert(showProviders).values({
+      showId: show!.id,
+      providerKey: 'crunchyroll',
+      externalId: extShowId,
+    }).onConflictDoNothing()
+
+    const results = await resolveShowCatalogStatus(db, 'crunchyroll', [extShowId])
+    expect(results[0]?.known).toBe(true)
+    expect(results[0]?.seasonCoverage).toEqual({})
   })
 })
