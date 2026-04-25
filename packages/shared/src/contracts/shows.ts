@@ -69,6 +69,11 @@ export const PatchEpisodeBodySchema = z.object({
   watched: z.boolean(),
 }).strict()
 
+export const BulkProgressBodySchema = z.object({
+  watched: z.boolean(),
+  seasonId: z.string().uuid().optional(),
+}).strict()
+
 export type ShowListItem = z.infer<typeof ShowListItemSchema>
 export type ShowDetail = z.infer<typeof ShowDetailSchema>
 export type SeasonDetail = z.infer<typeof SeasonDetailSchema>
@@ -76,3 +81,4 @@ export type EpisodeProgress = z.infer<typeof EpisodeProgressSchema>
 export type ProviderLink = z.infer<typeof ProviderLinkSchema>
 export type PatchShowBody = z.infer<typeof PatchShowBodySchema>
 export type PatchEpisodeBody = z.infer<typeof PatchEpisodeBodySchema>
+export type BulkProgressBody = z.infer<typeof BulkProgressBodySchema>

@@ -31,5 +31,6 @@
   "error_internal": "Error interno del servidor",
   "error_forbidden": "Prohibido",
   "app_updated_refreshing": "App actualizada, recargando…",
-  "open_in_justwatch": "Abrir en JustWatch"
+  "open_in_justwatch": "Abrir en JustWatch",
+  "confirm": "Confirmar"
 }

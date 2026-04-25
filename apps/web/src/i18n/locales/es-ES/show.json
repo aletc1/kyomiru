@@ -17,5 +17,11 @@
   "season_label": "Temporada {{n}}",
   "episode_label": "Episodio {{n}}",
   "mark_viewed": "Marcar como visto",
-  "mark_not_viewed": "Marcar como no visto"
+  "mark_not_viewed": "Marcar como no visto",
+  "mark_show_viewed": "Marcar todo como visto",
+  "mark_show_dialog_title": "¿Marcar el show completo como visto?",
+  "mark_show_dialog_desc": "Se marcarán {{count}} episodio(s) no vistos como vistos.",
+  "mark_season_viewed": "Marcar temporada como vista",
+  "mark_season_dialog_title": "¿Marcar la Temporada {{n}} como vista?",
+  "mark_season_dialog_desc": "Se marcarán {{count}} episodio(s) no vistos de esta temporada como vistos."
 }

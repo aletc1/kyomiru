@@ -2,17 +2,17 @@ import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { ArrowLeft, Heart, HeartOff, Trash2, RotateCcw, CheckCheck } from 'lucide-react'
+import { ArrowLeft, Heart, HeartOff, Trash2, RotateCcw, CheckCheck, ListChecks } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatRelative } from '@/lib/utils'
 import { Q } from '@/lib/queryKeys'
-import type { ShowDetail } from '@kyomiru/shared/contracts/shows'
+import type { ShowDetail, SeasonDetail, EpisodeProgress, BulkProgressBody } from '@kyomiru/shared/contracts/shows'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { RatingStars } from '@/components/RatingStars'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { ProviderLinkButton } from '@/components/ProviderLinkButton'
 import { JustWatchButton } from '@/components/JustWatchButton'
 import {
@@ -67,12 +67,27 @@ function ShowDetailPage() {
     onError: (err) => toast.error(err.message),
   })
 
+  const bulkProgress = useMutation({
+    mutationFn: (body: BulkProgressBody) =>
+      api.post(`/shows/${showId}/episodes/bulk-progress`, body),
+    onSuccess: invalidateShowQueries,
+    onError: (err) => toast.error(err.message),
+  })
+
   if (isLoading) return <ShowDetailSkeleton />
   if (!show) return <div className="py-24 text-center text-muted-foreground">{t('not_found')}</div>
 
   const isFavorited = !!show.favoritedAt
   const isRemoved = show.status === 'removed'
   const isWatched = show.status === 'watched'
+
+  // Mirrors the backend's airedEpisodesFilter (NULL or air_date <= today).
+  // Used to size the bulk-mark UI; the server is still authoritative.
+  const today = todayLocalDateString()
+  const isAired = (ep: EpisodeProgress) => !ep.airDate || ep.airDate <= today
+  const seasonAiredUnwatched = (s: SeasonDetail) =>
+    s.episodes.filter((ep) => isAired(ep) && !ep.watched).length
+  const showAiredUnwatched = show.seasons.reduce((sum, s) => sum + seasonAiredUnwatched(s), 0)
 
   const kindLabel = (k: string) => {
     if (k === 'anime') return t('kind_anime')
@@ -98,6 +113,31 @@ function ShowDetailPage() {
       )}
       <ProviderLinkButton providers={show.providers} kind="show" size="sm" showLabel className="w-full sm:w-auto" />
       <JustWatchButton title={show.canonicalTitle} year={show.year} size="sm" showLabel className="w-full sm:w-auto" />
+      {!isWatched && !isRemoved && showAiredUnwatched > 0 && (
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="sm" className="w-full sm:w-auto" disabled={bulkProgress.isPending}>
+              <ListChecks className="h-4 w-4 mr-1.5" /> {t('mark_show_viewed')}
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t('mark_show_dialog_title')}</DialogTitle>
+              <DialogDescription>
+                {t('mark_show_dialog_desc', { count: showAiredUnwatched })}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex gap-3 justify-end">
+              <DialogClose asChild>
+                <Button variant="outline">{t('common:cancel')}</Button>
+              </DialogClose>
+              <DialogClose asChild>
+                <Button onClick={() => bulkProgress.mutate({ watched: true })}>{t('common:confirm')}</Button>
+              </DialogClose>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
       {isRemoved ? (
         <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => patch.mutate({ status: 'restore' })} disabled={patch.isPending}>
           <RotateCcw className="h-4 w-4 mr-1.5" /> {t('restore')}
@@ -234,6 +274,39 @@ function ShowDetailPage() {
                 </span>
               </AccordionTrigger>
               <AccordionContent>
+                {(() => {
+                  const airedUnwatched = seasonAiredUnwatched(season)
+                  if (airedUnwatched === 0) return null
+                  return (
+                  <div className="px-2 pb-2">
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={bulkProgress.isPending}>
+                          <ListChecks className="h-3.5 w-3.5 mr-1.5" /> {t('mark_season_viewed')}
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>{t('mark_season_dialog_title', { n: season.seasonNumber })}</DialogTitle>
+                          <DialogDescription>
+                            {t('mark_season_dialog_desc', { count: airedUnwatched })}
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="flex gap-3 justify-end">
+                          <DialogClose asChild>
+                            <Button variant="outline">{t('common:cancel')}</Button>
+                          </DialogClose>
+                          <DialogClose asChild>
+                            <Button onClick={() => bulkProgress.mutate({ watched: true, seasonId: season.id })}>
+                              {t('common:confirm')}
+                            </Button>
+                          </DialogClose>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                  )
+                })()}
                 <div className="space-y-1">
                   {season.episodes.map((ep) => (
                     <div key={ep.id} className="flex items-center gap-3 py-1.5 px-2 rounded-md hover:bg-muted/50 text-sm">
@@ -278,6 +351,11 @@ function ShowDetailPage() {
       )}
     </div>
   )
+}
+
+function todayLocalDateString(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function ShowDetailSkeleton() {

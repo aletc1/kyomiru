@@ -17,5 +17,11 @@
   "season_label": "Season {{n}}",
   "episode_label": "Episode {{n}}",
   "mark_viewed": "Mark as viewed",
-  "mark_not_viewed": "Mark as not viewed"
+  "mark_not_viewed": "Mark as not viewed",
+  "mark_show_viewed": "Mark all viewed",
+  "mark_show_dialog_title": "Mark whole show as viewed?",
+  "mark_show_dialog_desc": "This will mark {{count}} unwatched episode(s) as viewed.",
+  "mark_season_viewed": "Mark season viewed",
+  "mark_season_dialog_title": "Mark Season {{n}} as viewed?",
+  "mark_season_dialog_desc": "This will mark {{count}} unwatched episode(s) in this season as viewed."
 }

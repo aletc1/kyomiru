@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { eq, and, inArray, sql } from 'drizzle-orm'
 import { shows, userShowState, seasons, episodes, userEpisodeProgress, users } from '@kyomiru/db/schema'
-import { PatchShowBodySchema, PatchEpisodeBodySchema } from '@kyomiru/shared/contracts/shows'
+import { PatchShowBodySchema, PatchEpisodeBodySchema, BulkProgressBodySchema } from '@kyomiru/shared/contracts/shows'
 import { recomputeUserShowState } from '../services/stateMachine.js'
+import { bulkUpdateEpisodeProgress, SeasonNotFoundError } from '../services/bulkProgress.service.js'
 import { enqueueEnrichment } from '../workers/enrichmentWorker.js'
 import { loadShowProviderLinks, loadEpisodeProviderLinks } from '../services/providerLinks.js'
 import { pickLocalized, resolveRequestLocales } from '../util/locale.js'
@@ -226,6 +227,33 @@ export async function showsRoutes(app: FastifyInstance) {
 
       await recomputeUserShowState(app.db, userId, showId)
       reply.send({ ok: true })
+    },
+  )
+
+  app.post<{ Params: { showId: string }; Body: unknown }>(
+    '/shows/:showId/episodes/bulk-progress',
+    { preHandler: app.requireAuth },
+    async (req, reply) => {
+      const userId = req.session.get('userId')!
+      const { showId } = req.params
+      const body = BulkProgressBodySchema.parse(req.body)
+
+      const [existingShow] = await app.db
+        .select({ showId: userShowState.showId })
+        .from(userShowState)
+        .where(and(eq(userShowState.userId, userId), eq(userShowState.showId, showId)))
+
+      if (!existingShow) return reply.status(404).send({ error: 'Show not in library' })
+
+      try {
+        const { episodesUpdated } = await bulkUpdateEpisodeProgress(app.db, userId, showId, body)
+        reply.send({ ok: true, episodesUpdated })
+      } catch (err) {
+        if (err instanceof SeasonNotFoundError) {
+          return reply.status(404).send({ error: 'Season not found' })
+        }
+        throw err
+      }
     },
   )
 }
