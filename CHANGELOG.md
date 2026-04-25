@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.7.1...kyomiru-v1.8.0) (2026-04-25)
+
+
+### Features
+
+* **api:** auto-clean cross-season phantom episodes after enrichment ([#63](https://github.com/aletc1/kyomiru/issues/63)) ([cea856b](https://github.com/aletc1/kyomiru/commit/cea856b47ba4a5f9e7fdeb8496d508c7c489ca59))
+
+
+### Bug Fixes
+
+* **api:** scope new_content whole-season rule to the latest season ([#64](https://github.com/aletc1/kyomiru/issues/64)) ([2c83d49](https://github.com/aletc1/kyomiru/commit/2c83d496386ef828ddc6f747b57f2d32a716ee42))
+
 ## [1.7.1](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.7.0...kyomiru-v1.7.1) (2026-04-25)
 
 
