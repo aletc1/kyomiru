@@ -16,6 +16,8 @@ import { allAdapters, adapterForTab } from './providers/index.js'
 import type { ProviderAdapter, SessionStatus } from './providers/types.js'
 import { initLocale, t } from './i18n.js'
 
+const DEFAULT_KYOMIRU_URL = 'https://kyomiru.app'
+
 function $(id: string): HTMLElement {
   const el = document.getElementById(id)
   if (!el) throw new Error(`Missing element: ${id}`)
@@ -58,6 +60,7 @@ function applyStaticChrome() {
   setText('static-title', 'title')
   setText('revoked-banner', 'banner_revoked')
   setText('connect-heading', 'connect_heading')
+  setText('label-advanced', 'label_advanced')
   setText('label-url', 'label_server_url')
   setText('label-token', 'label_token')
   setText('token-hint', 'token_hint')
@@ -270,7 +273,20 @@ async function renderSetup(prefill?: ExtensionConfig): Promise<void> {
   show($('setup'))
   const urlInput = $('kyomiru-url') as HTMLInputElement
   const tokenInput = $('kyomiru-token') as HTMLInputElement
-  urlInput.value = prefill?.kyomiruUrl ?? ''
+  const advancedToggle = $('advanced-toggle') as HTMLInputElement
+  const urlRow = $('url-row')
+
+  const savedUrl = prefill?.kyomiruUrl ?? ''
+  const isCustom = savedUrl !== '' && savedUrl !== DEFAULT_KYOMIRU_URL
+
+  advancedToggle.checked = isCustom
+  urlInput.value = isCustom ? savedUrl : ''
+  if (isCustom) {
+    show(urlRow)
+  } else {
+    hide(urlRow)
+  }
+
   tokenInput.value = prefill?.token ?? ''
   $('setup-log').textContent = ''
   const wasRevoked = await getAuthError()
@@ -284,13 +300,21 @@ async function renderSetup(prefill?: ExtensionConfig): Promise<void> {
 async function handleSave(): Promise<void> {
   const urlInput = $('kyomiru-url') as HTMLInputElement
   const tokenInput = $('kyomiru-token') as HTMLInputElement
+  const advancedToggle = $('advanced-toggle') as HTMLInputElement
   const btn = $('save-btn') as HTMLButtonElement
   const log = $('setup-log')
 
-  const rawUrl = urlInput.value.trim().replace(/\/$/, '')
+  const advanced = advancedToggle.checked
+  const rawUrl = advanced
+    ? urlInput.value.trim().replace(/\/$/, '')
+    : DEFAULT_KYOMIRU_URL
   const token = tokenInput.value.trim()
-  if (!rawUrl || !token) {
-    appendLog(log, t('url_token_required'))
+  if (!token) {
+    appendLog(log, t('token_required'))
+    return
+  }
+  if (advanced && !rawUrl) {
+    appendLog(log, t('url_required'))
     return
   }
 
@@ -398,6 +422,11 @@ async function init(): Promise<void> {
 
   $('save-btn').addEventListener('click', () => { void handleSave() })
   $('reconfigure-btn').addEventListener('click', () => { void handleReconfigure() })
+  $('advanced-toggle').addEventListener('change', (e) => {
+    const checked = (e.currentTarget as HTMLInputElement).checked
+    if (checked) show($('url-row'))
+    else hide($('url-row'))
+  })
   wireStorageListener()
 
   await buildProviderCards()
