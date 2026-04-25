@@ -7,6 +7,7 @@ import { searchAniList, aniListTreeToSeasons } from '@kyomiru/providers/enrichme
 import { searchTMDb, fetchTMDbShowTree } from '@kyomiru/providers/enrichment/tmdb'
 import type { SeasonTree } from '@kyomiru/providers/types'
 import { upsertShowCatalog } from '../services/sync.service.js'
+import { cleanupPhantomsForShow } from '../services/phantomEpisodes.service.js'
 import { resolveExternalIds, withExternalIdRetry } from '../services/enrichmentMerge.js'
 import { enqueueShowRefresh, type ShowRefreshJobData } from './showRefreshWorker.js'
 import { enqueueShowMerge, type ShowMergeJobData } from './showMergeWorker.js'
@@ -229,6 +230,20 @@ export function createEnrichmentWorker(
         // Drop phantom episodes left behind by an earlier (often Crunchyroll-shaped)
         // catalog if they have no provider mapping and no user progress.
         await upsertShowCatalog(db, showId, null, seasonTrees, { pruneOrphans: true })
+
+        // Cross-season title-collision cleanup: catches phantoms that share the
+        // same normalized/fuzzy title with a higher-season episode that owns the
+        // provider mapping (pruneOrphans misses these because the episode numbers
+        // may still be valid within their season).
+        try {
+          const phantom = await cleanupPhantomsForShow(db, showId)
+          if (phantom.deleted > 0) {
+            logger.info({ showId, ...phantom }, 'phantom episodes cleaned up post-enrichment')
+          }
+        } catch (err) {
+          logger.warn({ showId, err }, 'phantom cleanup failed — continuing')
+        }
+
         await enqueueShowRefresh(showRefreshQueue, showId)
       }
 
