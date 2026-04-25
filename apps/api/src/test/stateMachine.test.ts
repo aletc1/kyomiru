@@ -5,7 +5,7 @@ import type { StatusInput } from '../services/stateMachine.js'
 const base: StatusInput = {
   total: 12,
   watched: 6,
-  unwatchedWholeAiredSeasons: 0,
+  latestAiredSeasonUnwatched: false,
   existingStatus: 'in_progress',
   existingTotalEpisodes: 12,
   existingQueuePosition: 3,
@@ -41,7 +41,7 @@ describe('decideShowStatus', () => {
       const result = decideShowStatus({
         total: 13,
         watched: 12,
-        unwatchedWholeAiredSeasons: 0,
+        latestAiredSeasonUnwatched: false,
         existingStatus: 'watched',
         existingTotalEpisodes: 12,
         existingQueuePosition: null,
@@ -54,7 +54,7 @@ describe('decideShowStatus', () => {
       const result = decideShowStatus({
         total: 12,
         watched: 11,
-        unwatchedWholeAiredSeasons: 0,
+        latestAiredSeasonUnwatched: false,
         existingStatus: 'watched',
         existingTotalEpisodes: 12,
         existingQueuePosition: null,
@@ -66,7 +66,7 @@ describe('decideShowStatus', () => {
       const result = decideShowStatus({
         total: 12,
         watched: 12,
-        unwatchedWholeAiredSeasons: 0,
+        latestAiredSeasonUnwatched: false,
         existingStatus: 'watched',
         existingTotalEpisodes: 12,
         existingQueuePosition: null,
@@ -80,7 +80,7 @@ describe('decideShowStatus', () => {
       const result = decideShowStatus({
         total: 13,
         watched: 12,
-        unwatchedWholeAiredSeasons: 0,
+        latestAiredSeasonUnwatched: false,
         existingStatus: 'new_content',
         existingTotalEpisodes: 13,
         existingQueuePosition: null,
@@ -92,7 +92,7 @@ describe('decideShowStatus', () => {
       const result = decideShowStatus({
         total: 13,
         watched: 13,
-        unwatchedWholeAiredSeasons: 0,
+        latestAiredSeasonUnwatched: false,
         existingStatus: 'new_content',
         existingTotalEpisodes: 13,
         existingQueuePosition: null,
@@ -104,7 +104,7 @@ describe('decideShowStatus', () => {
       const result = decideShowStatus({
         total: 15,
         watched: 12,
-        unwatchedWholeAiredSeasons: 0,
+        latestAiredSeasonUnwatched: false,
         existingStatus: 'new_content',
         existingTotalEpisodes: 14,
         existingQueuePosition: null,
@@ -113,12 +113,12 @@ describe('decideShowStatus', () => {
     })
   })
 
-  describe('whole-season new_content', () => {
-    it('flips in_progress to new_content when a whole aired season is unwatched and user has started the show', () => {
+  describe('latest-season new_content', () => {
+    it('flips in_progress to new_content when the latest aired season is unwatched and user has started the show', () => {
       const result = decideShowStatus({
         total: 37,
         watched: 1,
-        unwatchedWholeAiredSeasons: 2,
+        latestAiredSeasonUnwatched: true,
         existingStatus: 'in_progress',
         existingTotalEpisodes: 37,
         existingQueuePosition: null,
@@ -130,7 +130,7 @@ describe('decideShowStatus', () => {
       const result = decideShowStatus({
         total: 24,
         watched: 0,
-        unwatchedWholeAiredSeasons: 2,
+        latestAiredSeasonUnwatched: true,
         existingStatus: 'in_progress',
         existingTotalEpisodes: 24,
         existingQueuePosition: null,
@@ -142,7 +142,7 @@ describe('decideShowStatus', () => {
       const result = decideShowStatus({
         total: 12,
         watched: 6,
-        unwatchedWholeAiredSeasons: 0,
+        latestAiredSeasonUnwatched: false,
         existingStatus: 'in_progress',
         existingTotalEpisodes: 12,
         existingQueuePosition: null,
@@ -150,11 +150,23 @@ describe('decideShowStatus', () => {
       expect(result.status).toBe('in_progress')
     })
 
-    it('watched beats whole-season rule when user is fully caught up', () => {
+    it('does NOT fire when only an early season is wholly skipped but the latest has progress', () => {
+      const result = decideShowStatus({
+        total: 24,
+        watched: 12,
+        latestAiredSeasonUnwatched: false,
+        existingStatus: 'in_progress',
+        existingTotalEpisodes: 24,
+        existingQueuePosition: null,
+      })
+      expect(result.status).toBe('in_progress')
+    })
+
+    it('watched beats latest-season rule when user is fully caught up', () => {
       const result = decideShowStatus({
         total: 12,
         watched: 12,
-        unwatchedWholeAiredSeasons: 1,
+        latestAiredSeasonUnwatched: true,
         existingStatus: 'in_progress',
         existingTotalEpisodes: 12,
         existingQueuePosition: null,
