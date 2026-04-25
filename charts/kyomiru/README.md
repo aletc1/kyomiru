@@ -271,9 +271,12 @@ kubectl -n kyomiru exec deploy/kyomiru-api -- npm run backfill:state
 
 # Reset enrichedAt to re-fetch multi-locale titles from TMDb/AniList:
 kubectl -n kyomiru exec deploy/kyomiru-api -- npm run backfill:translations
+
+# Reset enrichedAt for kind='tv' shows to re-classify (e.g. promote Animation to anime):
+kubectl -n kyomiru exec deploy/kyomiru-api -- npm run backfill:reclassify
 ```
 
-Run `backfill:translations` after adding new locales to `app.enrichmentLocales`.
+Run `backfill:translations` after adding new locales to `app.enrichmentLocales`. Run `backfill:reclassify` once after upgrading to the release containing the Animation classification fix to retroactively promote previously-misclassified shows.
 
 ## Upgrading
 

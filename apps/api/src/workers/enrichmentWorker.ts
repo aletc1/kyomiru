@@ -105,9 +105,16 @@ export function createEnrichmentWorker(
       let tmdbMatch = null
       let tmdbTree = null
       if (tmdbApiKey) {
-        tmdbMatch = await searchTMDb(show.canonicalTitle, tmdbApiKey, show.year ?? undefined)
-        if (tmdbMatch) {
-          tmdbTree = await fetchTMDbShowTree(tmdbMatch.id, tmdbApiKey, locales)
+        const searchResult = await searchTMDb(show.canonicalTitle, tmdbApiKey, show.year ?? undefined)
+        if (searchResult) {
+          tmdbTree = await fetchTMDbShowTree(searchResult.id, tmdbApiKey, locales)
+          // /search/tv only returns numeric genre_ids (so searchResult.genres
+          // is always []), but classifyKind matches genre names. Carry the
+          // resolved names from the detail fetch into tmdbMatch so the
+          // classification rules see them.
+          tmdbMatch = tmdbTree
+            ? { ...searchResult, genres: tmdbTree.genres }
+            : searchResult
           if (tmdbTree) {
             mergedTitles = { ...mergedTitles, ...tmdbTree.titles }
             mergedDescriptions = { ...mergedDescriptions, ...tmdbTree.descriptions }

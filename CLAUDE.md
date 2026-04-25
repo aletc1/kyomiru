@@ -32,6 +32,7 @@ pnpm -F @kyomiru/api cron:run                  # Enqueue enrichment for shows wi
 pnpm -F @kyomiru/api backfill:enrichment       # Re-enqueue enrichment for all shows
 pnpm -F @kyomiru/api backfill:state            # Recompute user_show_state for all users
 pnpm -F @kyomiru/api backfill:translations     # Reset enrichedAt for all shows to re-fetch multi-locale titles
+pnpm -F @kyomiru/api backfill:reclassify       # Reset enrichedAt for kind='tv' shows to re-classify (e.g. promote Animation to anime)
 pnpm -F @kyomiru/api approved:add <email> [note]   # Add email to the approved_emails table
 pnpm -F @kyomiru/api approved:remove <email>       # Remove email from approved_emails table
 pnpm -F @kyomiru/api approved:list                 # List all approved emails

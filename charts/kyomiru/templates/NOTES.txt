@@ -34,6 +34,7 @@ Run enrichment / backfill scripts against the live API pod:
   kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- npm run backfill:enrichment
   kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- npm run backfill:state
   kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- npm run backfill:translations
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- npm run backfill:reclassify
 
 Manage invite-only access (requires DISABLE_AUTO_SIGNUP=true):
   kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- npm run approved:add -- you@example.com

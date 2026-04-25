@@ -13,6 +13,7 @@
     "backfill:enrichment": "node dist/backfillEnrichment.js",
     "backfill:state": "node dist/backfillShowState.js",
     "backfill:translations": "node dist/backfillTranslations.js",
+    "backfill:reclassify": "node dist/backfillReclassify.js",
     "approved:add": "node dist/approved.js add",
     "approved:remove": "node dist/approved.js remove",
     "approved:list": "node dist/approved.js list"

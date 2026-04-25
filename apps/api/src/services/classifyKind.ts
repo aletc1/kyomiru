@@ -8,10 +8,16 @@ import type { AniListMatch } from '@kyomiru/providers/enrichment/anilist'
  *  1. Movies are never reclassified (enrichment doesn't change movie→tv).
  *  2. A high-confidence AniList match (≥ 0.9) is definitive — AniList only
  *     contains anime, so matching there means it's anime.
- *  3. If TMDB reports original_language=ja and the "Animation" genre, the
- *     show is Japanese animation i.e. anime. This catches Netflix shows that
- *     were seeded as 'tv' by the extension adapter.
+ *  3. If TMDB reports any genre containing "anim" (Animation, Anime,
+ *     Animated, …), the show is animated content and we classify it as
+ *     anime. Kyomiru's "Anime" library filter is therefore a synonym for
+ *     "any animated TV content" — Western cartoons (Arcane, etc.) are
+ *     included by design.
  *  4. Otherwise preserve the current kind.
+ *
+ * Caller contract: signals.tmdb.genres must be populated with resolved genre
+ * names before calling. searchTMDb() returns genres: [] (numeric genre_ids
+ * only); callers must copy genres from fetchTMDbShowTree() first.
  */
 export function classifyKind(
   current: 'anime' | 'tv' | 'movie',
@@ -19,9 +25,6 @@ export function classifyKind(
 ): 'anime' | 'tv' | 'movie' {
   if (current === 'movie') return 'movie'
   if (signals.anilist && signals.anilist.confidence >= 0.9) return 'anime'
-  if (
-    signals.tmdb?.originalLanguage === 'ja' &&
-    signals.tmdb.genres.some((g) => g.toLowerCase() === 'animation')
-  ) return 'anime'
+  if (signals.tmdb?.genres.some((g) => g.toLowerCase().includes('anim'))) return 'anime'
   return current
 }

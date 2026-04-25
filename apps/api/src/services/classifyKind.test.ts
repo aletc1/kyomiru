@@ -25,12 +25,12 @@ const lowConfAnilist: AniListMatch = {
 }
 
 describe('classifyKind', () => {
-  it('promotes JP Animation (Netflix anime) from tv to anime', () => {
+  it('promotes Animation-genre show to anime (e.g. Netflix-seeded JP anime)', () => {
     expect(classifyKind('tv', { tmdb: animeTMDb })).toBe('anime')
   })
 
-  it('does not promote western cartoon to anime', () => {
-    expect(classifyKind('tv', { tmdb: westernCartoon })).toBe('tv')
+  it('promotes any Animation-genre show to anime regardless of origin', () => {
+    expect(classifyKind('tv', { tmdb: westernCartoon })).toBe('anime')
   })
 
   it('preserves tv for non-animation show', () => {
@@ -61,5 +61,23 @@ describe('classifyKind', () => {
 
   it('preserves existing anime kind when no signals', () => {
     expect(classifyKind('anime', {})).toBe('anime')
+  })
+
+  // Regression: searchTMDb returns genres: [] because /search/tv only yields
+  // numeric genre_ids. Callers must copy genres from fetchTMDbShowTree() first.
+  it('does not promote when TMDb genres are empty (raw /search/tv result)', () => {
+    const rawSearchMatch: TMDbMatch = {
+      id: 41588, title: 'Highschool of the Dead',
+      genres: [], originalLanguage: 'ja', originCountry: ['JP'], confidence: 0.92,
+    }
+    expect(classifyKind('tv', { tmdb: rawSearchMatch })).toBe('tv')
+  })
+
+  it('matches genres containing "anim" case-insensitively', () => {
+    const animeGenre: TMDbMatch = { ...animeTMDb, genres: ['Anime'] }
+    expect(classifyKind('tv', { tmdb: animeGenre })).toBe('anime')
+
+    const animatedGenre: TMDbMatch = { ...animeTMDb, genres: ['Animated', 'Drama'] }
+    expect(classifyKind('tv', { tmdb: animatedGenre })).toBe('anime')
   })
 })
