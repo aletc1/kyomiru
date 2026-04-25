@@ -1,13 +1,13 @@
 import { Worker, Queue } from 'bullmq'
 import type { Redis } from 'ioredis'
 import type { DbClient } from '@kyomiru/db/client'
-import { eq, isNull, ne, and, sql } from 'drizzle-orm'
-import { shows, episodes, userShowState } from '@kyomiru/db/schema'
+import { eq, isNull } from 'drizzle-orm'
+import { shows } from '@kyomiru/db/schema'
 import { searchAniList, aniListTreeToSeasons } from '@kyomiru/providers/enrichment/anilist'
 import { searchTMDb, fetchTMDbShowTree } from '@kyomiru/providers/enrichment/tmdb'
 import type { SeasonTree } from '@kyomiru/providers/types'
 import { upsertShowCatalog } from '../services/sync.service.js'
-import { recomputeUserShowState } from '../services/stateMachine.js'
+import { enqueueShowRefresh, type ShowRefreshJobData } from './showRefreshWorker.js'
 import { classifyKind } from '../services/classifyKind.js'
 import { logger } from '../util/logger.js'
 
@@ -62,21 +62,12 @@ export async function enqueuePendingEnrichment(
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 
-async function refreshLatestAirDate(db: DbClient, showId: string): Promise<void> {
-  const [row] = await db
-    .select({ latest: sql<string | null>`MAX(${episodes.airDate})` })
-    .from(episodes)
-    .where(eq(episodes.showId, showId))
-  if (row?.latest) {
-    await db.update(shows).set({ latestAirDate: row.latest }).where(eq(shows.id, showId))
-  }
-}
-
 export function createEnrichmentWorker(
   db: DbClient,
   redis: Redis,
   tmdbApiKey: string | undefined,
-  locales: string[] = ['en-US'],
+  locales: string[],
+  showRefreshQueue: Queue<ShowRefreshJobData>,
 ) {
   return new Worker<EnrichmentJobData>(
     ENRICHMENT_QUEUE,
@@ -207,14 +198,7 @@ export function createEnrichmentWorker(
 
       if (matched && seasonTrees.length > 0) {
         await upsertShowCatalog(db, showId, null, seasonTrees)
-        await refreshLatestAirDate(db, showId)
-        const libraryRows = await db
-          .select({ userId: userShowState.userId })
-          .from(userShowState)
-          .where(and(eq(userShowState.showId, showId), ne(userShowState.status, 'removed')))
-        for (const { userId } of libraryRows) {
-          await recomputeUserShowState(db, userId, showId)
-        }
+        await enqueueShowRefresh(showRefreshQueue, showId)
       }
 
       logger.info(

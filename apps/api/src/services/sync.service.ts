@@ -10,6 +10,7 @@ import {
 import type { HistoryItem, SeasonTree, ShowTree } from '@kyomiru/providers/types'
 import { recomputeUserShowState } from './stateMachine.js'
 import { enqueueEnrichment, type EnrichmentJobData } from '../workers/enrichmentWorker.js'
+import { enqueueShowRefresh, type ShowRefreshJobData } from '../workers/showRefreshWorker.js'
 import { logger } from '../util/logger.js'
 
 const RUN_KEY_TTL_SECONDS = 3600
@@ -21,6 +22,57 @@ function runKey(providerKey: string, runId: string, suffix: string): string {
 }
 
 const WATCHED_THRESHOLD = 0.9
+
+export type SeasonInsertValue = {
+  showId: string
+  seasonNumber: number
+  title: string | null
+  airDate: string | null
+  episodeCount: number
+  titles: Record<string, string>
+}
+
+/**
+ * Merge two in-batch season values that target the same (showId, seasonNumber).
+ * Mirrors the SQL `ON CONFLICT DO UPDATE` semantics for columns the SQL
+ * touches: `episodeCount = GREATEST(...)` and `titles` JSONB merge with
+ * EXCLUDED winning shared keys.
+ *
+ * `title` and `airDate` use first-non-null-wins. The SQL ON CONFLICT clause
+ * does not update those columns, so this choice only affects the INSERT path
+ * (i.e. when the season row does not yet exist in the DB).
+ */
+export function mergeSeasonInBatch(prev: SeasonInsertValue, next: SeasonInsertValue): SeasonInsertValue {
+  return {
+    showId: prev.showId,
+    seasonNumber: prev.seasonNumber,
+    title: prev.title ?? next.title,
+    airDate: prev.airDate ?? next.airDate,
+    episodeCount: Math.max(prev.episodeCount, next.episodeCount),
+    titles: { ...prev.titles, ...next.titles },
+  }
+}
+
+/**
+ * Merge two in-batch episode values that target the same (seasonId, episodeNumber).
+ * Mirrors the SQL `ON CONFLICT DO UPDATE` clause: COALESCE(existing, EXCLUDED)
+ * for scalar fields and JSONB merge with EXCLUDED winning shared keys.
+ */
+export function mergeEpisodeInBatch(
+  prev: typeof episodes.$inferInsert,
+  next: typeof episodes.$inferInsert,
+): typeof episodes.$inferInsert {
+  return {
+    seasonId: prev.seasonId,
+    showId: prev.showId,
+    episodeNumber: prev.episodeNumber,
+    title: prev.title ?? next.title ?? null,
+    titles: { ...(prev.titles as Record<string, string>), ...(next.titles as Record<string, string>) },
+    descriptions: { ...(prev.descriptions as Record<string, string>), ...(next.descriptions as Record<string, string>) },
+    durationSeconds: prev.durationSeconds ?? next.durationSeconds ?? null,
+    airDate: prev.airDate ?? next.airDate ?? null,
+  }
+}
 
 /**
  * Upsert a show's full season/episode tree.
@@ -50,19 +102,10 @@ export async function upsertShowCatalog(
   // the same (showId, seasonNumber) — Postgres rejects "ON CONFLICT DO UPDATE
   // command cannot affect row a second time" when that happens. IngestOrdinal
   // floors fractional values, so Crunchyroll season 2 + season 2.5 (OVA arc)
-  // collapse to the same integer. Within-batch values are merged with the same
-  // semantics as the SQL ON CONFLICT clause.
-  type SeasonValue = {
-    showId: string
-    seasonNumber: number
-    title: string | null
-    airDate: string | null
-    episodeCount: number
-    titles: Record<string, string>
-  }
-  const seasonByNumber = new Map<number, SeasonValue>()
+  // collapse to the same integer. See mergeSeasonInBatch for merge semantics.
+  const seasonByNumber = new Map<number, SeasonInsertValue>()
   for (const s of seasonTrees) {
-    const next: SeasonValue = {
+    const next: SeasonInsertValue = {
       showId,
       seasonNumber: s.number,
       title: s.title ?? null,
@@ -71,18 +114,7 @@ export async function upsertShowCatalog(
       titles: (s.titles ?? (s.title ? { en: s.title } : {})) as Record<string, string>,
     }
     const prev = seasonByNumber.get(s.number)
-    if (!prev) {
-      seasonByNumber.set(s.number, next)
-    } else {
-      seasonByNumber.set(s.number, {
-        showId,
-        seasonNumber: s.number,
-        title: prev.title ?? next.title,
-        airDate: prev.airDate ?? next.airDate,
-        episodeCount: Math.max(prev.episodeCount, next.episodeCount),
-        titles: { ...prev.titles, ...next.titles },
-      })
-    }
+    seasonByNumber.set(s.number, prev ? mergeSeasonInBatch(prev, next) : next)
   }
   const seasonValues = [...seasonByNumber.values()]
 
@@ -106,8 +138,7 @@ export async function upsertShowCatalog(
   // ── Collect all episodes + their external IDs ──────────────────────────────
   // Same dedup rationale as seasons: episodes 11 and 11.5 (recap special) both
   // floor to episodeNumber 11 in IngestOrdinal and would collide on the bulk
-  // INSERT's (seasonId, episodeNumber) conflict target. Each distinct externalId
-  // is preserved separately and mapped onto the shared episode row below.
+  // INSERT's (seasonId, episodeNumber) conflict target. See mergeEpisodeInBatch.
   const episodeByKey = new Map<string, typeof episodes.$inferInsert>()
   // Parallel list that maps each episode value to its external provider ID (if any).
   const episodeExternalIds: Array<{ seasonId: string; episodeNumber: number; externalId: string }> = []
@@ -129,20 +160,7 @@ export async function upsertShowCatalog(
       }
       const key = `${seasonId}:${e.number}`
       const prev = episodeByKey.get(key)
-      if (!prev) {
-        episodeByKey.set(key, next)
-      } else {
-        episodeByKey.set(key, {
-          seasonId,
-          showId,
-          episodeNumber: e.number,
-          title: prev.title ?? next.title ?? null,
-          titles: { ...(prev.titles as Record<string, string>), ...(next.titles as Record<string, string>) },
-          descriptions: { ...(prev.descriptions as Record<string, string>), ...(next.descriptions as Record<string, string>) },
-          durationSeconds: prev.durationSeconds ?? next.durationSeconds ?? null,
-          airDate: prev.airDate ?? next.airDate ?? null,
-        })
-      }
+      episodeByKey.set(key, prev ? mergeEpisodeInBatch(prev, next) : next)
       if (e.externalId) {
         episodeExternalIds.push({ seasonId, episodeNumber: e.number, externalId: e.externalId })
       }
@@ -176,10 +194,13 @@ export async function upsertShowCatalog(
   if (!providerKey || episodeExternalIds.length === 0) return
 
   // ── Bulk insert episode_providers ─────────────────────────────────────────
-  // Iterate episodeExternalIds directly so multiple externalIds for the same
-  // (seasonId, episodeNumber) all land on the shared episode row — e.g. ep 11
-  // and recap special 11.5 both floor to episodeNumber 11 and should both
-  // resolve to the same episode.id.
+  // When two source episodes share a floored episodeNumber (e.g. 11 and 11.5),
+  // both attempt to insert episode_providers rows pointing at the same shared
+  // episode.id with the same providerKey. The PK is (episodeId, providerKey),
+  // so only the first-encountered externalId persists; the second collides and
+  // is dropped by onConflictDoNothing. The unique index on
+  // (providerKey, externalId) means we couldn't store both anyway — the schema
+  // permits at most one externalId per (episode, provider).
   const episodeIdByKey = new Map(insertedEps.map((ep) => [`${ep.seasonId}:${ep.episodeNumber}`, ep.id]))
 
   const epProviderValues: (typeof episodeProviders.$inferInsert)[] = []
@@ -294,9 +315,14 @@ async function recomputeAndFinalize(
   runId: string,
   touchedShowIds: Iterable<string>,
   counters: IngestCounters,
+  showRefreshQueue: Queue<ShowRefreshJobData> | null = null,
 ): Promise<void> {
+  // Recompute the syncing user inline so the finalize response observes fresh
+  // (total, watched). The queue job recomputes ALL library users for fanout —
+  // the syncing user is recomputed twice, which is idempotent and harmless.
   for (const showId of touchedShowIds) {
     await recomputeUserShowState(db, userId, showId)
+    if (showRefreshQueue) await enqueueShowRefresh(showRefreshQueue, showId)
   }
 
   await db.update(userServices)
@@ -639,6 +665,7 @@ export async function finalizeIngestRun(
   providerKey: string,
   runId: string,
   redis: Redis,
+  showRefreshQueue: Queue<ShowRefreshJobData> | null = null,
 ): Promise<IngestCounters> {
   const touchedKey = runKey(providerKey, runId, 'touched')
   const ingestedKey = runKey(providerKey, runId, 'ingested')
@@ -657,7 +684,7 @@ export async function finalizeIngestRun(
   }
 
   try {
-    await recomputeAndFinalize(db, userId, providerKey, runId, touchedShowIds, counters)
+    await recomputeAndFinalize(db, userId, providerKey, runId, touchedShowIds, counters, showRefreshQueue)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     logger.error({ err, runId }, 'Ingest finalize failed')
@@ -683,10 +710,11 @@ export async function ingestItems(
   runId: string,
   enrichmentQueue: Queue<EnrichmentJobData> | null = null,
   redis: Redis | null = null,
+  showRefreshQueue: Queue<ShowRefreshJobData> | null = null,
 ): Promise<IngestCounters> {
   if (redis) {
     await ingestChunk(db, userId, providerKey, items, showTrees, runId, enrichmentQueue, redis)
-    return finalizeIngestRun(db, userId, providerKey, runId, redis)
+    return finalizeIngestRun(db, userId, providerKey, runId, redis, showRefreshQueue)
   }
 
   // Legacy path (no Redis — used by tests without a Redis instance).

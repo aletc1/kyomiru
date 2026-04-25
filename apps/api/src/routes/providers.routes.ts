@@ -225,7 +225,7 @@ export async function providersRoutes(app: FastifyInstance) {
       }
 
       try {
-        const counters = await finalizeIngestRun(app.db, userId, providerKey, run.id, app.redis)
+        const counters = await finalizeIngestRun(app.db, userId, providerKey, run.id, app.redis, app.showRefreshQueue)
         reply.send({
           runId: run.id,
           itemsIngested: counters.itemsIngested,
@@ -276,6 +276,7 @@ export async function providersRoutes(app: FastifyInstance) {
           run.id,
           app.enrichmentQueue,
           app.redis,
+          app.showRefreshQueue,
         )
         reply.send({
           runId: run.id,

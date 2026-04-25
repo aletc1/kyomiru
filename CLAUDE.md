@@ -33,9 +33,11 @@ pnpm -F @kyomiru/api backfill:enrichment       # Re-enqueue enrichment for all s
 pnpm -F @kyomiru/api backfill:state            # Recompute user_show_state for all users
 pnpm -F @kyomiru/api backfill:translations     # Reset enrichedAt for all shows to re-fetch multi-locale titles
 pnpm -F @kyomiru/api backfill:reclassify       # Reset enrichedAt for kind='tv' shows to re-classify (e.g. promote Animation to anime)
+pnpm -F @kyomiru/api recompute:airing          # Enqueue showRefresh for shows whose stored total_episodes drifted from current aired count (run via daily external cron)
 pnpm -F @kyomiru/api approved:add <email> [note]   # Add email to the approved_emails table
 pnpm -F @kyomiru/api approved:remove <email>       # Remove email from approved_emails table
 pnpm -F @kyomiru/api approved:list                 # List all approved emails
+pnpm -F @kyomiru/api enrichment:debug <showId>     # Verbose enrichment diagnostic for a single show (dry-run; add --apply to persist)
 ```
 
 The Docker Compose file lives at `infra/compose/docker-compose.dev.yml`.
@@ -47,10 +49,12 @@ This is a **pnpm + Turborepo monorepo** with three apps and four packages.
 ### Apps
 
 **`apps/api`** — Fastify 5 REST API (Node 20, TypeScript, ESM)
-- Plugin setup in `src/app.ts` (in order): `configPlugin`, `@fastify/cors` (allowlists `WEB_ORIGIN` and any `chrome-extension://` origin), `@fastify/rate-limit` (60 req/min), `@fastify/secure-session` (30-day cookie, `SameSite=Lax`), `dbPlugin`, `redisPlugin`, `enrichmentQueuePlugin`, `authPlugin`, `errorHandlerPlugin`. `ZodError → 400` is mapped in `errorHandler`.
+- Plugin setup in `src/app.ts` (in order): `configPlugin`, `@fastify/cors` (allowlists `WEB_ORIGIN` and any `chrome-extension://` origin), `@fastify/rate-limit` (60 req/min), `@fastify/secure-session` (30-day cookie, `SameSite=Lax`), `dbPlugin`, `redisPlugin`, `enrichmentQueuePlugin`, `showRefreshQueuePlugin`, `authPlugin`, `errorHandlerPlugin`. `ZodError → 400` is mapped in `errorHandler`.
 - Routes under `/api` prefix: `auth`, `me` (GET + PATCH `preferredLocale`), `services`, `library`, `shows`, `queue`, `newContent`, `extension`, `providers`, `healthz`.
 - `src/util/locale.ts` — `pickLocalized(map, locales, fallback)` and `resolveRequestLocales(acceptLanguage, preferredLocale)` used by library and show routes to serve titles/descriptions in the request locale.
-- **One** BullMQ worker in `src/workers/enrichmentWorker.ts`: always calls TMDb first (classification signals + multi-locale titles/descriptions), then AniList when the show is classified as anime. `classifyKind` (`src/services/classifyKind.ts`) promotes `tv→anime` on Japanese-origin Animation shows or high-confidence AniList matches. 7-day freshness short-circuit on `shows.enrichedAt`, concurrency 3. When a newly-discovered season is upserted, it fans out a state recompute to every user that has the show in their library.
+- **Two** BullMQ workers, both concurrency 3:
+  - `src/workers/enrichmentWorker.ts` — always calls TMDb first (classification signals + multi-locale titles/descriptions), then AniList when the show is classified as anime. `classifyKind` (`src/services/classifyKind.ts`) promotes `tv→anime` on Japanese-origin Animation shows or high-confidence AniList matches. 7-day freshness short-circuit on `shows.enrichedAt`. When a newly-discovered season is upserted, it enqueues a `showRefresh` job for fanout.
+  - `src/workers/showRefreshWorker.ts` — single pipeline for "show changed" events. Refreshes `shows.latestAirDate` and recomputes `user_show_state` for every library user. Triggered by enrichment, sync ingest finalize, and the `recompute:airing` script. Jobs deduped by `refresh-<showId>`. The state machine (`src/services/stateMachine.ts`) only counts episodes where `air_date IS NULL OR air_date <= CURRENT_DATE`, so currently-airing shows can reach `watched` and `watched → new_content` fires when an air date crosses today.
 - Sync runs **inline** in `src/services/sync.service.ts` — not as a worker — via the extension-driven ingest protocol (see *Sync flow* below).
 - `src/cron.ts` is a one-shot script that enqueues enrichment jobs for shows with `enrichedAt IS NULL`. There is no in-repo scheduler; the daily sync trigger lives in the extension (`chrome.alarms`).
 - Library search uses `shows.search_tsv @@ websearch_to_tsquery('simple', q)` (GIN index `shows_search_tsv_idx`); the trigger was rebuilt in migration 0009 to concatenate all JSONB locale values so cross-language searches work. Kind filter uses `COALESCE(kindOverride, kind)`.

@@ -1,8 +1,15 @@
-import { eq, and, count } from 'drizzle-orm'
+import { eq, and, count, sql } from 'drizzle-orm'
 import type { DbClient } from '@kyomiru/db/client'
 import { userEpisodeProgress, userShowState, episodes, type showStatusEnum } from '@kyomiru/db/schema'
 
 type ShowStatus = typeof showStatusEnum.enumValues[number]
+
+// Episodes with a future air_date are excluded from state-machine counts so a
+// currently-airing show doesn't sit forever at "3/12 in_progress". A NULL
+// air_date means we don't know — extension-only shows (Netflix history-only
+// fallback) write episodes without dates — and we count those as aired.
+export const airedEpisodesFilter = () =>
+  sql`(${episodes.airDate} IS NULL OR ${episodes.airDate} <= CURRENT_DATE)`
 
 export interface StatusInput {
   total: number
@@ -40,15 +47,13 @@ export async function recomputeUserShowState(
   userId: string,
   showId: string,
 ): Promise<void> {
-  // Count total episodes for this show
   const [totalRow] = await db
     .select({ count: count() })
     .from(episodes)
-    .where(eq(episodes.showId, showId))
+    .where(and(eq(episodes.showId, showId), airedEpisodesFilter()))
 
   const total = totalRow?.count ?? 0
 
-  // Count episodes watched by this user
   const [watchedRow] = await db
     .select({ count: count() })
     .from(userEpisodeProgress)
@@ -58,6 +63,7 @@ export async function recomputeUserShowState(
         eq(userEpisodeProgress.userId, userId),
         eq(userEpisodeProgress.watched, true),
         eq(episodes.showId, showId),
+        airedEpisodesFilter(),
       ),
     )
 

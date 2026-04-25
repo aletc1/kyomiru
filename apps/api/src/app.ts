@@ -7,6 +7,7 @@ import { dbPlugin } from './plugins/db.js'
 import { redisPlugin } from './plugins/redis.js'
 import { authPlugin } from './plugins/auth.js'
 import { enrichmentQueuePlugin } from './plugins/enrichmentQueue.js'
+import { showRefreshQueuePlugin } from './plugins/showRefreshQueue.js'
 import { errorHandlerPlugin } from './plugins/errorHandler.js'
 import { authRoutes } from './routes/auth.routes.js'
 import { meRoutes } from './routes/me.routes.js'
@@ -57,6 +58,7 @@ export async function buildApp() {
   await app.register(dbPlugin)
   await app.register(redisPlugin)
   await app.register(enrichmentQueuePlugin)
+  await app.register(showRefreshQueuePlugin)
   await app.register(authPlugin)
   await app.register(errorHandlerPlugin)
 
