@@ -42,6 +42,7 @@ pnpm -F @kyomiru/api queue:status                     # Snapshot of BullMQ queue
 pnpm -F @kyomiru/api queue:clean                      # Drain completed + failed jobs from all queues; --queue=<name> --state=<state> --waiting to scope
 pnpm -F @kyomiru/api merge:scan                       # Re-enqueue enrichment for shows with no tmdb_id; add --force to ignore the 5-attempt retry cap
 pnpm -F @kyomiru/api rebuild:show <showId>            # Wipe a show's catalog and replay its watch_events through the adopt-on-miss path; --scan to list shows with lost progress, --scan --apply to bulk-rebuild them
+pnpm -F @kyomiru/api cleanup:phantom-eps              # Detect and delete phantom episodes left over from older catalog shapes (no provider, no progress, same title as a higher-season episode); --scan to dry-run, --scan --apply to delete, or pass a <showId> to scope to one show
 ```
 
 The Docker Compose file lives at `infra/compose/docker-compose.dev.yml`.

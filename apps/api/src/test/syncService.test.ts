@@ -15,6 +15,7 @@ import {
   ingestChunk,
   reResolveOrphanedEpisodes,
   resolveShowCatalogStatus,
+  upsertShowCatalog,
   type SeasonInsertValue,
 } from '../services/sync.service.js'
 import { mergeShows } from '../services/showMerge.js'
@@ -724,5 +725,164 @@ describe.skipIf(!DATABASE_URL)('resolveShowCatalogStatus (DB)', () => {
     const results = await resolveShowCatalogStatus(db, 'crunchyroll', [extShowId])
     expect(results[0]?.known).toBe(true)
     expect(results[0]?.seasonCoverage).toEqual({})
+  })
+})
+
+describe.skipIf(!DATABASE_URL)('upsertShowCatalog pruneOrphans (DB)', () => {
+  let db: DbClient
+  const createdShowIds: string[] = []
+
+  beforeAll(() => {
+    db = createDbClient(DATABASE_URL!)
+  })
+
+  afterEach(async () => {
+    if (createdShowIds.length > 0) {
+      await db.delete(shows).where(inArray(shows.id, createdShowIds))
+      createdShowIds.length = 0
+    }
+  })
+
+  async function makeShowWithSeason(seasonNumber: number, episodeCount: number) {
+    const s = Math.random().toString(36).slice(2, 8)
+    const title = `Prune Show ${s}`
+    const [show] = await db.insert(shows).values({
+      canonicalTitle: title,
+      titleNormalized: title.toLowerCase(),
+      titles: { en: title },
+      descriptions: {},
+    }).returning({ id: shows.id })
+    createdShowIds.push(show!.id)
+    const [season] = await db.insert(seasons).values({
+      showId: show!.id, seasonNumber, episodeCount, titles: {},
+    }).returning({ id: seasons.id })
+    const epIds: string[] = []
+    for (let n = 1; n <= episodeCount; n++) {
+      const [ep] = await db.insert(episodes).values({
+        seasonId: season!.id, showId: show!.id, episodeNumber: n, titles: {}, descriptions: {},
+      }).returning({ id: episodes.id })
+      epIds.push(ep!.id)
+    }
+    return { showId: show!.id, seasonId: season!.id, epIds }
+  }
+
+  it('pruneOrphans=true deletes orphan episodes missing from the new tree (no provider, no progress)', async () => {
+    // Seed Season 1 with 24 episodes (the bad Crunchyroll-bunched shape).
+    const { showId, seasonId, epIds } = await makeShowWithSeason(1, 24)
+
+    // Re-upsert Season 1 with only 12 episodes (the correct TMDb shape).
+    await upsertShowCatalog(db, showId, null, [
+      {
+        number: 1,
+        title: 'Season 1',
+        episodes: Array.from({ length: 12 }, (_, i) => ({
+          number: i + 1, title: `Ep ${i + 1}`, externalId: '',
+        })),
+      },
+    ], { pruneOrphans: true })
+
+    const remaining = await db.select({ episodeNumber: episodes.episodeNumber })
+      .from(episodes).where(eq(episodes.seasonId, seasonId))
+    expect(remaining.map((r) => r.episodeNumber).sort((a, b) => a - b))
+      .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+
+    // seasons.episode_count must reflect reality.
+    const [seasonRow] = await db.select({ episodeCount: seasons.episodeCount })
+      .from(seasons).where(eq(seasons.id, seasonId))
+    expect(seasonRow?.episodeCount).toBe(12)
+
+    // Spot-check that the original epIds 13-24 are gone.
+    const stillThere = await db.select({ id: episodes.id })
+      .from(episodes).where(inArray(episodes.id, epIds.slice(12))) // epIds[12..23] = original eps 13..24
+    expect(stillThere).toHaveLength(0)
+  })
+
+  it('pruneOrphans=true keeps an orphan that has user_episode_progress (defensive)', async () => {
+    // Seed S1 with 14 episodes; user has progress on ep 14 (the would-be phantom).
+    const { showId, seasonId, epIds } = await makeShowWithSeason(1, 14)
+    const phantomEpId = epIds[13]! // ep 14
+
+    const s = Math.random().toString(36).slice(2, 8)
+    const [user] = await db.insert(users).values({
+      googleSub: `sub-prune-${s}`, email: `prune-${s}@example.com`, displayName: `Prune ${s}`,
+    }).returning({ id: users.id })
+    try {
+      await db.insert(userEpisodeProgress).values({
+        userId: user!.id, episodeId: phantomEpId, watched: true,
+        watchedAt: new Date('2024-06-01'), lastEventAt: new Date('2024-06-01'),
+      }).onConflictDoNothing()
+
+      await upsertShowCatalog(db, showId, null, [
+        {
+          number: 1,
+          title: 'Season 1',
+          episodes: Array.from({ length: 12 }, (_, i) => ({
+            number: i + 1, title: `Ep ${i + 1}`, externalId: '',
+          })),
+        },
+      ], { pruneOrphans: true })
+
+      // Ep 14 (phantomEpId) must survive — it carries user progress.
+      const stillThere = await db.select({ episodeNumber: episodes.episodeNumber })
+        .from(episodes).where(eq(episodes.id, phantomEpId))
+      expect(stillThere[0]?.episodeNumber).toBe(14)
+
+      // Ep 13 has no progress, no provider → must be deleted.
+      const ep13Gone = await db.select({ id: episodes.id })
+        .from(episodes).where(eq(episodes.id, epIds[12]!))
+      expect(ep13Gone).toHaveLength(0)
+
+      // seasons.episode_count = 12 surviving + 1 progress-protected = 13.
+      const [seasonRow] = await db.select({ episodeCount: seasons.episodeCount })
+        .from(seasons).where(eq(seasons.id, seasonId))
+      expect(seasonRow?.episodeCount).toBe(13)
+    } finally {
+      await db.delete(users).where(eq(users.id, user!.id))
+    }
+  })
+
+  it('pruneOrphans=true keeps an orphan that has an episode_providers mapping (defensive)', async () => {
+    // Seed S1 with 14 episodes; ep 14 has a Crunchyroll mapping.
+    const { showId, seasonId, epIds } = await makeShowWithSeason(1, 14)
+    const phantomEpId = epIds[13]!
+    await db.insert(episodeProviders).values({
+      episodeId: phantomEpId, providerKey: 'crunchyroll', externalId: `cr-keepme-${randomUUID()}`,
+    }).onConflictDoNothing()
+
+    await upsertShowCatalog(db, showId, null, [
+      {
+        number: 1,
+        title: 'Season 1',
+        episodes: Array.from({ length: 12 }, (_, i) => ({
+          number: i + 1, title: `Ep ${i + 1}`, externalId: '',
+        })),
+      },
+    ], { pruneOrphans: true })
+
+    const stillThere = await db.select({ episodeNumber: episodes.episodeNumber })
+      .from(episodes).where(eq(episodes.id, phantomEpId))
+    expect(stillThere[0]?.episodeNumber).toBe(14)
+
+    const [seasonRow] = await db.select({ episodeCount: seasons.episodeCount })
+      .from(seasons).where(eq(seasons.id, seasonId))
+    expect(seasonRow?.episodeCount).toBe(13)
+  })
+
+  it('pruneOrphans=false (default) preserves orphan episodes', async () => {
+    const { showId, seasonId } = await makeShowWithSeason(1, 24)
+
+    await upsertShowCatalog(db, showId, null, [
+      {
+        number: 1,
+        title: 'Season 1',
+        episodes: Array.from({ length: 12 }, (_, i) => ({
+          number: i + 1, title: `Ep ${i + 1}`, externalId: '',
+        })),
+      },
+    ])
+
+    const remaining = await db.select({ episodeNumber: episodes.episodeNumber })
+      .from(episodes).where(eq(episodes.seasonId, seasonId))
+    expect(remaining).toHaveLength(24)
   })
 })

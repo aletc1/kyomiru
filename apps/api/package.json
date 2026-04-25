@@ -22,7 +22,8 @@
     "queue:status": "node dist/queueStatus.js",
     "queue:clean": "node dist/queueClean.js",
     "merge:scan": "node dist/scanDuplicateShows.js",
-    "rebuild:show": "node dist/rebuildShowCatalog.js"
+    "rebuild:show": "node dist/rebuildShowCatalog.js",
+    "cleanup:phantom-eps": "node dist/cleanupPhantomEpisodes.js"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.1",
