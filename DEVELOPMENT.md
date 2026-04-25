@@ -34,13 +34,13 @@ The Vite dev server proxies `/api/*` to `localhost:3000` automatically. Open [ht
 ```
 kyomiru/
 ├── apps/
-│   ├── api/        Fastify 5 REST API + BullMQ enrichment worker
+│   ├── api/        Fastify 5 REST API + BullMQ enrichment / show-refresh / show-merge workers
 │   ├── web/        React 18 PWA (Vite 6, TanStack Router + Query)
 │   └── extension/  Chrome MV3 extension (Crunchyroll + Netflix ingest)
 ├── packages/
 │   ├── shared/     Zod contracts shared by api and web
 │   ├── db/         Drizzle ORM schema, migrations, seed
-│   ├── providers/  Provider abstraction + AniList, TMDb enrichment
+│   ├── providers/  Enrichment abstraction (AniList + TMDb)
 │   └── config/     Shared tsconfig presets
 ├── infra/
 │   ├── compose/    docker-compose.dev.yml (Postgres + Redis)
@@ -105,14 +105,22 @@ docker exec -it $(docker ps -qf name=postgres) psql -U kyomiru kyomiru
 These scripts target the compiled `dist/` output — run `pnpm -F @kyomiru/api build` once before invoking them locally.
 
 ```bash
-pnpm --filter @kyomiru/api cron:run               # enqueue pending enrichment jobs manually
-pnpm --filter @kyomiru/api backfill:enrichment    # re-enqueue enrichment for ALL shows
+pnpm --filter @kyomiru/api cron:run               # enqueue enrichment for shows with no enrichedAt (daily delta)
+pnpm --filter @kyomiru/api backfill:enrichment    # re-enqueue enrichment; add --force to reset enrichedAt and re-enqueue all shows
 pnpm --filter @kyomiru/api backfill:state         # recompute user_show_state for every (user, show) pair
-pnpm --filter @kyomiru/api backfill:translations  # reset enrichedAt to re-fetch multi-locale titles
+pnpm --filter @kyomiru/api backfill:translations  # reset enrichedAt for all shows to re-fetch multi-locale titles
+pnpm --filter @kyomiru/api backfill:reclassify    # reset enrichedAt for kind='tv' shows to re-classify (e.g. promote Animation)
+pnpm --filter @kyomiru/api recompute:airing       # enqueue showRefresh for drifted shows; add --force to enqueue all non-removed shows
+pnpm --filter @kyomiru/api merge:scan             # re-enqueue enrichment for shows with no tmdb_id (duplicate-detection safety net)
+pnpm --filter @kyomiru/api enrichment:debug <id>  # verbose enrichment diagnostic for a single show (dry-run; add --apply to persist)
+pnpm --filter @kyomiru/api queue:status           # snapshot of BullMQ queue depth; add --watch to stream live job events
+pnpm --filter @kyomiru/api queue:clean            # drain completed + failed jobs from all queues; --queue --state --waiting to scope
 ```
 
-Run `backfill:state` after deploying changes to the status-machine logic or when shows are stuck at `watched` despite a newly-aired season existing in the `episodes` table.
+Run `backfill:state` after deploying changes to the status-machine logic or when shows are stuck at `watched` despite a newly-aired season.
 Run `backfill:translations` after adding new locales to `ENRICHMENT_LOCALES`.
+Run `backfill:reclassify` after upgrading to a release that broadened the animation classifier.
+Run `recompute:airing` and `merge:scan` daily via an external scheduler (cron, Kubernetes CronJob, etc.).
 
 ### Access control (invite-only)
 
@@ -148,13 +156,15 @@ All variables live in `apps/api/.env` (or your deployment platform's env). Use `
 | `REDIS_URL` | Yes | Redis connection string |
 | `APP_SECRET_KEY` | Yes | 32-byte base64 key for encrypting provider credentials — `openssl rand -base64 32` |
 | `SESSION_SECRET` | Yes | Secret for signing session cookies — `openssl rand -base64 32` |
-| `GOOGLE_CLIENT_ID` | Yes | Google OAuth client ID ([Google Cloud Console](https://console.cloud.google.com) → OAuth 2.0 Client IDs) |
-| `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth client secret |
-| `OIDC_REDIRECT_URL` | Yes | OAuth callback URL — must match the Google Console; `http://localhost:3000/api/auth/callback` locally |
+| `GOOGLE_CLIENT_ID` | Yes¹ | Google OAuth client ID ([Google Cloud Console](https://console.cloud.google.com) → OAuth 2.0 Client IDs) |
+| `GOOGLE_CLIENT_SECRET` | Yes¹ | Google OAuth client secret |
+| `OIDC_REDIRECT_URL` | Yes¹ | OAuth callback URL — must match the Google Console; `http://localhost:3000/api/auth/callback` locally |
 | `WEB_ORIGIN` | Yes | Frontend origin, e.g. `http://localhost:5173` |
 | `API_ORIGIN` | Yes | API origin, e.g. `http://localhost:3000` |
-| `TMDB_API_KEY` | No | TMDb API key for non-anime metadata enrichment |
+| `TMDB_API_KEY` | No | TMDb API key — used for all shows (classification, multi-locale titles/descriptions, ratings) |
 | `ENRICHMENT_LOCALES` | No | Comma-separated locales for TMDb enrichment. Default: `en-US,ja-JP,es-ES,fr-FR` |
+| `ENRICHMENT_CONCURRENCY` | No | Parallel enrichment jobs per worker process. Default: `3` |
+| `SHOW_REFRESH_CONCURRENCY` | No | Parallel show-refresh jobs per worker process. Default: `3` |
 | `DISABLE_AUTO_SIGNUP` | No | When `true`, only emails in `approved_emails` (or matching `AUTO_SIGNUP_EMAIL_PATTERN`) may sign in. Default: `false` |
 | `AUTO_SIGNUP_EMAIL_PATTERN` | No | Glob pattern for auto-approving emails (e.g. `*@company.com`). Only active when `DISABLE_AUTO_SIGNUP=true` |
 | `MOCK_GOOGLE_AUTH_USER` | No | **Dev only.** Hitting `/api/auth/google` immediately creates a session for this email, bypassing OIDC. Leave empty in production. |
@@ -162,6 +172,8 @@ All variables live in `apps/api/.env` (or your deployment platform's env). Use `
 | `PROVIDERS_FIXTURE` | No | Reserved for fixture-driven provider testing |
 | `PORT` | No | API port (default: `3000`) |
 | `NODE_ENV` | No | `development` or `production` (affects cookie `secure` flag) |
+
+¹ Required unless `MOCK_GOOGLE_AUTH_USER` is set.
 
 ## Data model
 
@@ -187,12 +199,15 @@ Two scopes — global catalog data is shared across all users; only watch histor
 ```
 (first ingest)   → in_progress   (partial watch)
 (first ingest)   → watched       (100% watched)
-in_progress      → watched       (all episodes done)
+in_progress      → watched       (all aired episodes done)
+in_progress      → new_content   (≥1 whole aired season has zero watched episodes — whole-season skip rule)
 watched          → new_content   (new episode released — the "memory" feature)
-new_content      → in_progress   (user starts watching new episode)
+new_content      → watched       (user catches up fully)
 any              → removed       (user removes; prev_status saved)
 removed          → prev_status   (user restores)
 ```
+
+`new_content` is sticky — it does not flip back to `in_progress` automatically. Only a full catch-up (→ `watched`) or an explicit PATCH clears it. Only aired episodes count (`air_date IS NULL OR air_date <= CURRENT_DATE`), so future seasons do not trigger early. Transitioning to `watched` clears `queue_position`.
 
 ## Architecture
 
@@ -205,11 +220,11 @@ Watch history enters Kyomiru through the Chrome extension (`apps/extension/`). T
 3. Call `recomputeUserShowState` for each touched show — this is where `watched → new_content` flips happen
 4. Enqueue enrichment jobs for new shows (deduplicated by BullMQ job ID)
 
-The ingest pipeline lives in `apps/api/src/services/sync.service.ts` and supports chunked ingest (start / chunk / finalize) for large histories.
+The ingest pipeline lives in `apps/api/src/services/sync.service.ts` and supports chunked ingest (start / chunk / finalize) for large histories. Two additional BullMQ workers run alongside the sync pipeline: `showRefreshWorker` recomputes `shows.latestAirDate` and fans out `user_show_state` for every library user whenever a show changes (triggered by enrichment, finalize, `recompute:airing`, and merges; jobs deduped by `refresh-<showId>`); `showMergeWorker` collapses two `shows` rows that resolve to the same `tmdb_id` or `anilist_id` into one canonical row, guarded by `pg_advisory_xact_lock`.
 
 ### Enrichment
 
-`pnpm --filter @kyomiru/api cron:run` is a one-shot script that calls `enqueuePendingEnrichment`, which enqueues a BullMQ job for every show missing or stale `enriched_at`. There is no in-repo scheduler — invoke it manually or from your deployment platform's scheduler (cron, systemd timer, Fly.io cron, etc.). The `enrichmentWorker` (`apps/api/src/workers/enrichmentWorker.ts`) processes each job, fetching metadata from AniList (anime) or TMDb (non-anime) and upserting the catalog. The daily watch-history sync trigger lives in the Chrome extension via `chrome.alarms`, not on the server.
+`pnpm --filter @kyomiru/api cron:run` is a one-shot script that calls `enqueuePendingEnrichment`, which enqueues a BullMQ job for every show missing `enriched_at`. There is no in-repo scheduler — invoke it manually or from your deployment platform's scheduler (cron, systemd timer, Fly.io cron, etc.). The `enrichmentWorker` (`apps/api/src/workers/enrichmentWorker.ts`) processes each job: it always calls TMDb first (classification signals + multi-locale titles/descriptions), then calls AniList only when the show is classified as anime. The daily watch-history sync trigger lives in the Chrome extension via `chrome.alarms`, not on the server.
 
 ### Credential encryption
 
@@ -229,6 +244,7 @@ All routes are under `/api`. The web dev server proxies `/api/*` to `:3000`.
 | `GET` | `/api/auth/callback` | OIDC callback; sets session cookie |
 | `POST` | `/api/auth/logout` | Clear session |
 | `GET` | `/api/me` | Current user profile |
+| `PATCH` | `/api/me` | Update `preferredLocale` |
 | `GET` | `/api/services` | List providers with connection status |
 | `POST` | `/api/services/:provider/test` | Test credentials without saving |
 | `POST` | `/api/services/:provider/connect` | Save encrypted credentials |
@@ -248,7 +264,7 @@ All routes are under `/api`. The web dev server proxies `/api/*` to `:3000`.
 | `POST` | `/api/providers/:provider/ingest/start` | Start a chunked ingest run |
 | `POST` | `/api/providers/:provider/ingest/chunk` | Submit a history chunk |
 | `POST` | `/api/providers/:provider/ingest/finalize` | Finalize a chunked ingest run |
-| `GET` | `/healthz` | Health check (`{ ok, db, redis }`) |
+| `GET` | `/api/healthz` | Health check (`{ ok, db, redis, queues }`) |
 
 ## Debugging
 
@@ -278,8 +294,8 @@ KEYS bull:enrichment:*
 ### Health check
 
 ```bash
-curl http://localhost:3000/healthz
-# {"ok":true,"db":true,"redis":true}
+curl http://localhost:3000/api/healthz
+# {"ok":true,"db":true,"redis":true,"queues":{...}}
 ```
 
 ## Production deployment

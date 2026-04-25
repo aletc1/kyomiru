@@ -16,7 +16,9 @@ Kyomiru (kyō + miru, "today I watch") is a self-hostable PWA for tracking your 
 - **Removed** — soft-deleted shows, restorable at any time
 - **Watch Queue** — drag-and-drop prioritised list of shows to watch next
 - **Multi-language content** — show, season, and episode titles/descriptions stored in up to four locales (en-US, ja-JP, es-ES, fr-FR); served in the user's preferred language
-- **Automatic anime reclassification** — shows imported as `tv` (e.g. Netflix) are promoted to `anime` when TMDB signals Japanese origin + Animation genre, or when AniList returns a high-confidence match; per-user kind override available
+- **Automatic Animation classification** — shows imported as `tv` (e.g. Netflix) are reclassified into the Animation library (Western cartoons included) when TMDb tags any animation genre, or when AniList returns a high-confidence match; per-user kind override available
+- **Fuzzy & accent-tolerant search** — finds "akira" when stored as "Ákira", tolerates typos like "frieern" for "Frieren"
+- **Open in JustWatch** — one-click jump from any show card or detail page to where the show streams in your locale
 - **Nightly enrichment** — automated metadata refresh from AniList and TMDb, now multi-locale
 - **PWA** — installable on desktop and mobile; offline library via service worker
 
@@ -86,7 +88,7 @@ By default anyone who authenticates via Google gets access. To restrict sign-in 
 
 | Variable | Purpose |
 |---|---|
-| `TMDB_API_KEY` | TMDb metadata enrichment for non-anime shows — [get one free](https://www.themoviedb.org/settings/api) |
+| `TMDB_API_KEY` | TMDb metadata enrichment (titles, descriptions, classification, ratings) — used for all shows — [get one free](https://www.themoviedb.org/settings/api) |
 | `ENRICHMENT_LOCALES` | Comma-separated locales fetched from TMDb during enrichment. Defaults to `en-US,ja-JP,es-ES,fr-FR` |
 | `DISABLE_AUTO_SIGNUP` | When `true`, only pre-approved emails may sign in. Default: `false` (anyone who authenticates via Google gets access) |
 | `AUTO_SIGNUP_EMAIL_PATTERN` | Glob pattern auto-approving emails without an explicit table entry (e.g. `*@company.com`). Only active when `DISABLE_AUTO_SIGNUP=true` |

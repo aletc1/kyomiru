@@ -36,7 +36,7 @@ Outputs an unpacked MV3 extension at `apps/extension/dist/`.
 1. Open `chrome://extensions`
 2. Enable **Developer mode** (top right)
 3. Click **Load unpacked** and pick `apps/extension/dist/`
-4. Click the extension icon → paste your Kyomiru URL (e.g. `http://localhost:3000`) + an extension token from `Kyomiru → Settings → Extension tokens`
+4. Click the extension icon → paste your extension token (generated at `Kyomiru → Settings → Extension tokens`). The Kyomiru URL is auto-detected; tick **Advanced options** to override it.
 5. Click **Connect**. The popup will request host permission for your Kyomiru origin.
 6. Navigate to `https://www.crunchyroll.com` or `https://www.netflix.com` and browse any page so the extension establishes a session.
 7. Open the extension popup and click **Sync now** on the relevant provider card.
