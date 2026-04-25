@@ -92,7 +92,7 @@ This is a **pnpm + Turborepo monorepo** with three apps and four packages.
 **Show status state machine** (`apps/api/src/services/stateMachine.ts`):
 - First ingest → `in_progress` (partial watch) or `watched` (all episodes)
 - `watched` → `new_content` when `total > userShowState.totalEpisodes` and user is behind (a new season/episode appeared)
-- `in_progress` → `new_content` when the user has watched at least one episode AND at least one whole aired season has zero watched episodes (whole-season skip rule). This covers shows where the user started mid-series or new seasons dropped while still in progress.
+- `in_progress` → `new_content` when the user has watched at least one episode AND the latest aired season (highest `season_number` with aired episodes) has zero watched episodes. Only the latest season is checked — skipped earlier seasons are treated as a deliberate choice and do not trigger this.
 - `new_content` is sticky: it clears only when the user fully catches up (→ `watched`) or explicitly via a PATCH route
 - `removed` is a soft delete. `recomputeUserShowState` will not overwrite `removed`; it only refreshes the episode counters. `prev_status` exists as a column for future restore logic.
 - Status is recomputed after every ingest and after enrichment upserts new episodes. Transitioning to `watched` clears `queue_position`.

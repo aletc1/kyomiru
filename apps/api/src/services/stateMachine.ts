@@ -1,4 +1,4 @@
-import { eq, and, count, sql } from 'drizzle-orm'
+import { eq, and, count, sql, desc } from 'drizzle-orm'
 import type { DbClient } from '@kyomiru/db/client'
 import { userEpisodeProgress, userShowState, episodes, seasons, type showStatusEnum } from '@kyomiru/db/schema'
 
@@ -14,8 +14,8 @@ export const airedEpisodesFilter = () =>
 export interface StatusInput {
   total: number
   watched: number
-  // Seasons where every aired episode is unwatched. Drives the whole-season new_content rule.
-  unwatchedWholeAiredSeasons: number
+  // True when the latest aired season has no watched episodes. Drives the new_content rule.
+  latestAiredSeasonUnwatched: boolean
   existingStatus: ShowStatus
   existingTotalEpisodes: number
   existingQueuePosition: number | null
@@ -27,7 +27,7 @@ export interface StatusResult {
 }
 
 export function decideShowStatus(input: StatusInput): StatusResult {
-  const { total, watched, unwatchedWholeAiredSeasons, existingStatus, existingTotalEpisodes, existingQueuePosition } = input
+  const { total, watched, latestAiredSeasonUnwatched, existingStatus, existingTotalEpisodes, existingQueuePosition } = input
 
   let status: ShowStatus
 
@@ -37,8 +37,8 @@ export function decideShowStatus(input: StatusInput): StatusResult {
     status = 'new_content'
   } else if (existingStatus === 'new_content' && watched < total) {
     status = 'new_content'
-  } else if (watched > 0 && watched < total && unwatchedWholeAiredSeasons > 0) {
-    // User has started the show but whole aired seasons remain completely unwatched.
+  } else if (watched > 0 && watched < total && latestAiredSeasonUnwatched) {
+    // User has started the show but the latest aired season is completely unwatched.
     status = 'new_content'
   } else {
     status = 'in_progress'
@@ -74,30 +74,40 @@ export async function recomputeUserShowState(
 
   const watched = watchedRow?.count ?? 0
 
-  // Count seasons that have aired episodes but zero watched by this user.
-  const [unwatchedSeasonsRow] = await db
-    .select({ count: count() })
+  // Find the latest season (by season_number) that has at least one aired episode.
+  const [latestSeasonRow] = await db
+    .select({ id: seasons.id })
     .from(seasons)
     .where(
       and(
         eq(seasons.showId, showId),
-        sql`(
-          SELECT COUNT(*) FROM ${episodes}
-          WHERE ${episodes.seasonId} = ${seasons.id}
-            AND (${episodes.airDate} IS NULL OR ${episodes.airDate} <= CURRENT_DATE)
-        ) > 0`,
-        sql`NOT EXISTS (
+        sql`EXISTS (
           SELECT 1 FROM ${episodes}
-          JOIN ${userEpisodeProgress} ON ${userEpisodeProgress.episodeId} = ${episodes.id}
           WHERE ${episodes.seasonId} = ${seasons.id}
-            AND ${userEpisodeProgress.userId} = ${userId}
-            AND ${userEpisodeProgress.watched} = true
-            AND (${episodes.airDate} IS NULL OR ${episodes.airDate} <= CURRENT_DATE)
+            AND ${airedEpisodesFilter()}
         )`,
       ),
     )
+    .orderBy(desc(seasons.seasonNumber))
+    .limit(1)
 
-  const unwatchedWholeAiredSeasons = unwatchedSeasonsRow?.count ?? 0
+  // Check whether the user has watched any aired episode in that latest season.
+  let latestAiredSeasonUnwatched = false
+  if (latestSeasonRow) {
+    const [watchedInLatest] = await db
+      .select({ count: count() })
+      .from(userEpisodeProgress)
+      .innerJoin(episodes, eq(userEpisodeProgress.episodeId, episodes.id))
+      .where(
+        and(
+          eq(userEpisodeProgress.userId, userId),
+          eq(userEpisodeProgress.watched, true),
+          eq(episodes.seasonId, latestSeasonRow.id),
+          airedEpisodesFilter(),
+        ),
+      )
+    latestAiredSeasonUnwatched = (watchedInLatest?.count ?? 0) === 0
+  }
 
   // Get existing state
   const [existing] = await db
@@ -119,7 +129,7 @@ export async function recomputeUserShowState(
   const { status: newStatus, queuePosition } = decideShowStatus({
     total,
     watched,
-    unwatchedWholeAiredSeasons,
+    latestAiredSeasonUnwatched,
     existingStatus: existing.status as ShowStatus,
     existingTotalEpisodes: existing.totalEpisodes,
     existingQueuePosition: existing.queuePosition,
