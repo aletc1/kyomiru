@@ -225,7 +225,10 @@ export function createEnrichmentWorker(
       }
 
       if (matched && seasonTrees.length > 0) {
-        await upsertShowCatalog(db, showId, null, seasonTrees)
+        // pruneOrphans: TMDb/AniList are authoritative for episode structure.
+        // Drop phantom episodes left behind by an earlier (often Crunchyroll-shaped)
+        // catalog if they have no provider mapping and no user progress.
+        await upsertShowCatalog(db, showId, null, seasonTrees, { pruneOrphans: true })
         await enqueueShowRefresh(showRefreshQueue, showId)
       }
 

@@ -1,4 +1,4 @@
-import { eq, and, ne, or, sql, inArray } from 'drizzle-orm'
+import { eq, and, ne, or, sql, inArray, notInArray, notExists } from 'drizzle-orm'
 import type { Queue } from 'bullmq'
 import type { Redis } from 'ioredis'
 import type { DbClient } from '@kyomiru/db/client'
@@ -74,6 +74,19 @@ export function mergeEpisodeInBatch(
   }
 }
 
+export interface UpsertShowCatalogOptions {
+  /**
+   * After upsert, delete episodes in any of the upserted seasons whose
+   * (seasonId, episodeNumber) is not present in the new tree, gated by
+   * "no provider mapping AND no user progress". Use only when the source
+   * is authoritative for episode structure (TMDb/AniList enrichment) —
+   * provider catalog upserts (Crunchyroll, …) leave it false because their
+   * shape can be wrong (e.g. Spanish-dub series that bundle two seasons
+   * under a single Season 1 with absolute numbering).
+   */
+  pruneOrphans?: boolean
+}
+
 /**
  * Upsert a show's full season/episode tree.
  *
@@ -88,6 +101,7 @@ export async function upsertShowCatalog(
   showId: string,
   providerKey: string | null,
   seasonTrees: SeasonTree[],
+  options: UpsertShowCatalogOptions = {},
 ): Promise<void> {
   if (seasonTrees.length === 0) return
 
@@ -189,6 +203,44 @@ export async function upsertShowCatalog(
       })
       .returning({ id: episodes.id, seasonId: episodes.seasonId, episodeNumber: episodes.episodeNumber })
     insertedEps.push(...rows)
+  }
+
+  // ── Optional: prune orphan episodes left over from a prior catalog shape ──
+  // For each season in the new tree, delete episodes whose (seasonId, episodeNumber)
+  // is not in the new tree, gated by "no provider mapping AND no user progress".
+  // Fixes the historical Crunchyroll-then-TMDb case where Season 1 was first
+  // upserted with absolute numbering (e.g. 24 episodes for a 12-ep season) and
+  // never trimmed back when TMDb later reshaped the show into S1+S2.
+  if (options.pruneOrphans) {
+    const validNumbersBySeasonId = new Map<string, number[]>()
+    for (const v of allEpisodeValues) {
+      const sId = v.seasonId as string
+      const arr = validNumbersBySeasonId.get(sId) ?? []
+      arr.push(v.episodeNumber)
+      validNumbersBySeasonId.set(sId, arr)
+    }
+    for (const [sId, validNumbers] of validNumbersBySeasonId) {
+      await db.delete(episodes).where(and(
+        eq(episodes.seasonId, sId),
+        notInArray(episodes.episodeNumber, validNumbers),
+        notExists(
+          db.select({ one: sql`1` }).from(episodeProviders)
+            .where(eq(episodeProviders.episodeId, episodes.id)),
+        ),
+        notExists(
+          db.select({ one: sql`1` }).from(userEpisodeProgress)
+            .where(eq(userEpisodeProgress.episodeId, episodes.id)),
+        ),
+      ))
+    }
+    // Recompute seasons.episode_count for the affected seasons so the column
+    // reflects reality after the prune (UI relies on this for the "X/Y" badge).
+    const affectedSeasonIds = [...validNumbersBySeasonId.keys()]
+    if (affectedSeasonIds.length > 0) {
+      await db.update(seasons).set({
+        episodeCount: sql`(SELECT COUNT(*)::int FROM ${episodes} WHERE ${episodes.seasonId} = ${seasons.id})`,
+      }).where(inArray(seasons.id, affectedSeasonIds))
+    }
   }
 
   if (!providerKey || episodeExternalIds.length === 0) return
