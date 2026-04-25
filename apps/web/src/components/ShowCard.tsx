@@ -15,8 +15,8 @@ export function ShowCard({ show }: Props) {
   const progress = show.totalEpisodes > 0 ? Math.round((show.watchedEpisodes / show.totalEpisodes) * 100) : 0
 
   return (
-    <Link to="/show/$showId" params={{ showId: show.id }} className="group block">
-      <div className="relative overflow-hidden rounded-lg border bg-card transition-all hover:shadow-md hover:-translate-y-0.5">
+    <div className="group relative">
+      <div className="relative overflow-hidden rounded-lg border bg-card transition-all group-hover:shadow-md group-hover:-translate-y-0.5">
         {/* Cover */}
         <div className="aspect-[2/3] relative overflow-hidden bg-muted">
           {show.coverUrl ? (
@@ -28,21 +28,6 @@ export function ShowCard({ show }: Props) {
             />
           ) : (
             <div className="flex h-full items-center justify-center text-muted-foreground text-4xl">📺</div>
-          )}
-          {show.status === 'new_content' && (
-            <div className="absolute top-2 left-2">
-              <Badge variant="new">NEW</Badge>
-            </div>
-          )}
-          {show.providers.length > 0 && (
-            <div className="absolute top-2 right-2">
-              <ProviderLinkButton
-                providers={show.providers}
-                kind="show"
-                size="icon"
-                className="h-8 w-8 bg-background/80 backdrop-blur-sm hover:bg-background"
-              />
-            </div>
           )}
         </div>
         {/* Info */}
@@ -59,6 +44,27 @@ export function ShowCard({ show }: Props) {
           {show.rating && <RatingStars value={show.rating} size="sm" />}
         </div>
       </div>
-    </Link>
+      <Link
+        to="/show/$showId"
+        params={{ showId: show.id }}
+        aria-label={show.canonicalTitle}
+        className="absolute inset-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      />
+      {show.status === 'new_content' && (
+        <div className="absolute top-2 left-2 pointer-events-none">
+          <Badge variant="new">NEW</Badge>
+        </div>
+      )}
+      {show.providers.length > 0 && (
+        <div className="absolute top-2 right-2">
+          <ProviderLinkButton
+            providers={show.providers}
+            kind="show"
+            size="icon"
+            className="h-8 w-8 bg-background/80 backdrop-blur-sm hover:bg-background"
+          />
+        </div>
+      )}
+    </div>
   )
 }

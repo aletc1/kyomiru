@@ -172,7 +172,7 @@ function LibraryPage() {
         </Select>
         {showKindFilter && (
           <Select value={kind ?? 'all'} onValueChange={handleKindChange}>
-            <SelectTrigger className="w-32">
+            <SelectTrigger className="w-44">
               <SelectValue placeholder={t('filter_type')} />
             </SelectTrigger>
             <SelectContent>
@@ -185,7 +185,7 @@ function LibraryPage() {
         )}
         {showProviderFilter && (
           <Select value={provider ?? 'all'} onValueChange={handleProviderChange}>
-            <SelectTrigger className="w-40">
+            <SelectTrigger className="w-52">
               <SelectValue placeholder={t('filter_provider')} />
             </SelectTrigger>
             <SelectContent>
