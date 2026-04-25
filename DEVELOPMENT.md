@@ -115,6 +115,8 @@ pnpm --filter @kyomiru/api merge:scan             # re-enqueue enrichment for sh
 pnpm --filter @kyomiru/api enrichment:debug <id>  # verbose enrichment diagnostic for a single show (dry-run; add --apply to persist)
 pnpm --filter @kyomiru/api queue:status           # snapshot of BullMQ queue depth; add --watch to stream live job events
 pnpm --filter @kyomiru/api queue:clean            # drain completed + failed jobs from all queues; --queue --state --waiting to scope
+pnpm --filter @kyomiru/api rebuild:show [<showId>] # wipe a show's catalog and replay its watch_events; --scan lists shows with lost progress, --scan --apply bulk-rebuilds
+pnpm --filter @kyomiru/api cleanup:phantom-eps    # detect/delete phantom episodes from older catalog shapes; --scan to dry-run, --scan --apply to delete, or pass a <showId> to scope
 ```
 
 Run `backfill:state` after deploying changes to the status-machine logic or when shows are stuck at `watched` despite a newly-aired season.

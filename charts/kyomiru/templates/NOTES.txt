@@ -50,4 +50,16 @@ Inspect BullMQ queue depth (waiting/active/failed counts + live events):
   kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- npm run queue:status
   kubectl -n {{ .Release.Namespace }} exec -it deploy/{{ include "kyomiru.fullname" . }}-api -- npm run queue:status -- --watch
 
+Drain completed + failed BullMQ jobs (scope with --queue=<name> --state=<state> --waiting):
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- npm run queue:clean
+
+Repair a show's catalog by replaying its watch_events (use --scan to list shows with lost progress, --scan --apply to bulk-rebuild):
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- npm run rebuild:show -- <showId>
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- npm run rebuild:show -- --scan
+
+Prune phantom episodes left over from older catalog shapes (--scan to dry-run, --scan --apply to delete, or pass a <showId> to scope to one show):
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- npm run cleanup:phantom-eps -- --scan
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- npm run cleanup:phantom-eps -- --scan --apply
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kyomiru.fullname" . }}-api -- npm run cleanup:phantom-eps -- <showId> --apply
+
 Full documentation: https://github.com/aletc1/kyomiru/blob/main/charts/kyomiru/README.md
