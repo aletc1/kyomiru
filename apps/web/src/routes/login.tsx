@@ -13,7 +13,7 @@ function LoginPage() {
   const error = new URLSearchParams(window.location.search).get('error')
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="min-h-dvh flex items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center items-center gap-3">
           <Logo size="lg" showWordmark />

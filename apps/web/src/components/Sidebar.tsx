@@ -80,7 +80,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'hidden md:flex flex-col border-r bg-sidebar h-screen sticky top-0 transition-all duration-200',
+        'hidden md:flex flex-col border-r bg-sidebar h-dvh sticky top-0 transition-all duration-200',
         sidebarOpen ? 'w-60' : 'w-14',
       )}
     >

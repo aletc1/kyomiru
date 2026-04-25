@@ -51,18 +51,18 @@ function RootLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   if (pathname === '/login' || pathname === '/unauthorized') return <Outlet />
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-dvh">
       <Sidebar />
       <MobileSidebar />
       <div className="flex-1 flex flex-col min-w-0">
         {/* Mobile top bar */}
-        <header className="flex md:hidden h-14 items-center border-b px-4 gap-3 bg-background sticky top-0 z-10">
+        <header className="flex md:hidden min-h-14 items-center border-b px-4 gap-3 bg-background sticky top-0 z-10 pt-[env(safe-area-inset-top)]">
           <button onClick={() => setMobileSidebarOpen(true)} aria-label={t('open_menu')}>
             <Menu className="h-5 w-5" />
           </button>
           <Logo size="sm" showWordmark />
         </header>
-        <main className="flex-1 p-4 md:p-6">
+        <main className="flex-1 p-4 md:p-6 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
           <Outlet />
         </main>
       </div>

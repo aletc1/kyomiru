@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -30,7 +30,16 @@ function ShowDetailPage() {
   const { t } = useTranslation('show')
   const { showId } = Route.useParams()
   const navigate = useNavigate()
+  const router = useRouter()
   const queryClient = useQueryClient()
+
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      router.history.back()
+    } else {
+      void navigate({ to: '/library' })
+    }
+  }
 
   const { data: show, isLoading } = useQuery<ShowDetail>({
     queryKey: Q.show(showId),
@@ -118,7 +127,7 @@ function ShowDetailPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      <Button variant="ghost" size="sm" onClick={() => navigate({ to: '/library' })}>
+      <Button variant="ghost" size="sm" onClick={handleBack}>
         <ArrowLeft className="h-4 w-4 mr-2" /> {t('common:back')}
       </Button>
 
