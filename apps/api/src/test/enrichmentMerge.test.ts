@@ -1,12 +1,14 @@
 import '../loadEnv.js'
-import { describe, it, expect, beforeAll, afterEach } from 'vitest'
-import { eq, inArray } from 'drizzle-orm'
+import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest'
+import { sql, inArray } from 'drizzle-orm'
 import { createDbClient, type DbClient } from '@kyomiru/db/client'
 import { shows } from '@kyomiru/db/schema'
 import {
   isShowsExternalIdConflict,
   resolveExternalIds,
   withExternalIdRetry,
+  SHOWS_TMDB_ID_INDEX,
+  SHOWS_ANILIST_ID_INDEX,
 } from '../services/enrichmentMerge.js'
 
 const DATABASE_URL = process.env['DATABASE_URL']
@@ -56,7 +58,7 @@ describe('withExternalIdRetry', () => {
 
   it('rolls tmdbId back to current on tmdb conflict and retries once', async () => {
     const seen: Array<{ tmdbId: number | null; anilistId: number | null }> = []
-    const onRace = vi_fn()
+    const onRace = vi.fn()
     await withExternalIdRetry(
       { tmdbId: null, anilistId: null },
       { tmdbId: 99, anilistId: 42 },
@@ -64,13 +66,14 @@ describe('withExternalIdRetry', () => {
         seen.push(ids)
         if (seen.length === 1) throw { code: '23505', constraint_name: 'shows_tmdb_id_idx' }
       },
-      onRace.fn,
+      onRace,
     )
     expect(seen).toEqual([
       { tmdbId: 99, anilistId: 42 },
       { tmdbId: null, anilistId: 42 },
     ])
-    expect(onRace.calls).toEqual([{ kind: 'tmdb', attempt: 0 }])
+    expect(onRace).toHaveBeenCalledTimes(1)
+    expect(onRace).toHaveBeenCalledWith({ kind: 'tmdb', attempt: 0 })
   })
 
   it('rolls anilistId back on anilist conflict', async () => {
@@ -147,6 +150,19 @@ describe.skipIf(!DATABASE_URL)('resolveExternalIds (DB)', () => {
     createdShowIds.push(row!.id)
     return row!.id
   }
+
+  it('shows table actually has the partial unique indexes whose names isShowsExternalIdConflict matches against', async () => {
+    // If a future migration renames these indexes, withExternalIdRetry silently
+    // stops working and the worker crashes on conflicts again.
+    const rows = await db.execute<{ indexname: string }>(sql`
+      SELECT indexname FROM pg_indexes
+      WHERE tablename = 'shows'
+        AND indexname IN (${SHOWS_TMDB_ID_INDEX}, ${SHOWS_ANILIST_ID_INDEX})
+    `)
+    const found = new Set(rows.map((r) => r.indexname))
+    expect(found.has(SHOWS_TMDB_ID_INDEX)).toBe(true)
+    expect(found.has(SHOWS_ANILIST_ID_INDEX)).toBe(true)
+  })
 
   it('returns proposed values when no other row holds them', async () => {
     const id = await makeShow()
@@ -230,12 +246,3 @@ describe.skipIf(!DATABASE_URL)('resolveExternalIds (DB)', () => {
   })
 })
 
-// Tiny inline mock helper — the api test suite does not pull in vi.fn helpers
-// elsewhere so we stay consistent with the rest of the file's style.
-function vi_fn() {
-  const calls: Array<{ kind: 'tmdb' | 'anilist'; attempt: number }> = []
-  return {
-    fn: (info: { kind: 'tmdb' | 'anilist'; attempt: number }) => { calls.push(info) },
-    get calls() { return calls },
-  }
-}

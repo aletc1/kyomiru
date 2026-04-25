@@ -71,13 +71,20 @@ export async function resolveExternalIds(
  * Returned when another writer claimed the id between resolveExternalIds and
  * the subsequent UPDATE. postgres-js exposes `code` (SQLSTATE) and
  * `constraint_name` on PostgresError instances.
+ *
+ * Index names are defined in packages/db/src/migrations/0003_show_enrichment_columns.sql.
+ * If those names ever change, the SHOWS_EXTERNAL_ID_INDEXES test in
+ * enrichmentMerge.test.ts will fail loudly against a real database.
  */
+export const SHOWS_TMDB_ID_INDEX = 'shows_tmdb_id_idx'
+export const SHOWS_ANILIST_ID_INDEX = 'shows_anilist_id_idx'
+
 export function isShowsExternalIdConflict(err: unknown): { kind: 'tmdb' | 'anilist' } | null {
   if (!err || typeof err !== 'object') return null
   const e = err as { code?: string; constraint_name?: string }
   if (e.code !== '23505') return null
-  if (e.constraint_name === 'shows_tmdb_id_idx') return { kind: 'tmdb' }
-  if (e.constraint_name === 'shows_anilist_id_idx') return { kind: 'anilist' }
+  if (e.constraint_name === SHOWS_TMDB_ID_INDEX) return { kind: 'tmdb' }
+  if (e.constraint_name === SHOWS_ANILIST_ID_INDEX) return { kind: 'anilist' }
   return null
 }
 

@@ -10,7 +10,12 @@ async function main() {
 
   // Workers use a dedicated Redis connection — BullMQ workers hold blocking
   // commands (BRPOPLPUSH) that would serialise other Redis calls if shared.
-  const workerRedis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: null })
+  // maxRetriesPerRequest:null + enableReadyCheck:false are the BullMQ-recommended
+  // settings for worker connections.
+  const workerRedis = new Redis(config.REDIS_URL, {
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+  })
 
   const enrichWorker = createEnrichmentWorker(
     app.db,

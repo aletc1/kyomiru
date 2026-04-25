@@ -172,19 +172,24 @@ export async function fetchTMDbShowTree(
         epDescriptionsMap.set(e.episode_number, {})
       }
 
-      // Fetch additional locales for episode titles.
+      // Fetch additional locales in parallel — sequential fanout was the
+      // dominant cost and could push enrichment past the BullMQ lockDuration
+      // for shows with many seasons.
       const additionalLocales = locales.slice(1)
-      for (const locale of additionalLocales) {
-        const langKey = locale.split('-')[0] ?? locale
-        const localeResp = await fetchWithTimeout(
+      const localeResults = await Promise.all(additionalLocales.map(async (locale) => {
+        const resp = await fetchWithTimeout(
           `${TMDB_BASE}/tv/${tmdbId}/season/${s.season_number}?api_key=${encodeURIComponent(apiKey)}&language=${encodeURIComponent(locale)}`,
         )
-        if (!localeResp.ok) continue
-        const localeSeason = (await localeResp.json()) as TMDbSeasonDetail
-        for (const e of localeSeason.episodes ?? []) {
+        if (!resp.ok) return null
+        const langKey = locale.split('-')[0] ?? locale
+        return { langKey, season: (await resp.json()) as TMDbSeasonDetail }
+      }))
+      for (const r of localeResults) {
+        if (!r) continue
+        for (const e of r.season.episodes ?? []) {
           if (e.name) {
             const existing = epTitlesMap.get(e.episode_number) ?? {}
-            epTitlesMap.set(e.episode_number, { ...existing, [langKey]: e.name })
+            epTitlesMap.set(e.episode_number, { ...existing, [r.langKey]: e.name })
           }
         }
       }
