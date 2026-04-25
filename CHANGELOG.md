@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.7.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.6.1...kyomiru-v1.7.0) (2026-04-25)
+
+
+### Features
+
+* **api:** fuzzy + accent-insensitive library search ([#54](https://github.com/aletc1/kyomiru/issues/54)) ([bbfcabe](https://github.com/aletc1/kyomiru/commit/bbfcabe44318abe6f931cdc9867ecf39e501847c))
+* **extension:** hide Kyomiru URL behind "Advanced options" checkbox ([#51](https://github.com/aletc1/kyomiru/issues/51)) ([5ba8362](https://github.com/aletc1/kyomiru/commit/5ba83626b4dc242e1e174f9490322453f6a07dfc))
+
+
+### Bug Fixes
+
+* **api:** flip in_progress to new_content when whole aired seasons are unwatched ([#55](https://github.com/aletc1/kyomiru/issues/55)) ([d14a4b9](https://github.com/aletc1/kyomiru/commit/d14a4b99c6812ccb98221675e1789704c8634571))
+* **api:** prevent FK violation when merge worker races ingest chunk ([#53](https://github.com/aletc1/kyomiru/issues/53)) ([2e578a5](https://github.com/aletc1/kyomiru/commit/2e578a589a9acbf9029ff341ddbc3f01b28c2531))
+* **api:** recover Crunchyroll items when panel ID and catalog ID diverge ([#57](https://github.com/aletc1/kyomiru/issues/57)) ([cea1d9e](https://github.com/aletc1/kyomiru/commit/cea1d9e318f8935274b24c9fe290bc3683ff2bb7))
+* **api:** recover dropped items when merge worker races ingest chunk ([#56](https://github.com/aletc1/kyomiru/issues/56)) ([443ce3b](https://github.com/aletc1/kyomiru/commit/443ce3b55af52ca9609e981cfbb7eae1600acee3))
+
 ## [1.6.1](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.6.0...kyomiru-v1.6.1) (2026-04-25)
 
 
