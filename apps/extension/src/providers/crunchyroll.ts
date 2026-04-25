@@ -13,6 +13,8 @@ const CR_AUTH_BASIC = 'Basic Y3Jfd2ViOg=='
 const PAGE_SIZE = 100
 const PAGE_DELAY_MS = 200
 const REQUEST_TIMEOUT_MS = 30_000
+// Number of series whose catalogs are fetched in parallel.
+const CATALOG_CONCURRENCY = 4
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -125,33 +127,57 @@ function extractProfileId(url: string): string | null {
   return isValidProfileId(candidate) ? candidate : null
 }
 
-async function authedFetch<T>(url: string, jwt: string): Promise<T> {
+async function makeAuthedRequest(url: string, jwt: string): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
-  let resp: Response
   try {
-    resp = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${jwt}`,
-        'Content-Type': 'application/json',
-      },
+    return await fetch(url, {
+      headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
       signal: controller.signal,
     })
   } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new CrunchyrollTimeoutError()
-    }
+    if (err instanceof DOMException && err.name === 'AbortError') throw new CrunchyrollTimeoutError()
     throw err
   } finally {
     clearTimeout(timer)
   }
+}
+
+// Shared in-flight refresh promise so concurrent 401s collapse onto a single
+// token-endpoint call. Without this, parallel catalog fetches could trigger
+// many redundant refresh requests and racing session writes.
+let inFlightRefresh: Promise<boolean> | null = null
+
+function dedupedRefreshSession(): Promise<boolean> {
+  if (!inFlightRefresh) {
+    inFlightRefresh = refreshCrunchyrollSession()
+      .catch(() => false)
+      .finally(() => { inFlightRefresh = null })
+  }
+  return inFlightRefresh
+}
+
+/**
+ * Authenticated fetch with a single automatic token refresh on 401/403.
+ * Uses the browser's existing etp_rt cookie to obtain a fresh JWT without
+ * user interaction, so long-running syncs survive token rollovers.
+ */
+async function authedFetch<T>(url: string, jwt: string): Promise<T> {
+  let resp = await makeAuthedRequest(url, jwt)
 
   if (resp.status === 401 || resp.status === 403) {
+    const refreshed = await dedupedRefreshSession()
+    if (refreshed) {
+      const newSession = await getSession<CrunchyrollSession>('crunchyroll').catch(() => null)
+      if (newSession?.jwt) {
+        resp = await makeAuthedRequest(url, newSession.jwt)
+        if (resp.ok) return (await resp.json()) as T
+      }
+    }
     throw new CrunchyrollAuthError(resp.status)
   }
-  if (!resp.ok) {
-    throw new Error(`Crunchyroll HTTP ${resp.status} for ${url}`)
-  }
+
+  if (!resp.ok) throw new Error(`Crunchyroll HTTP ${resp.status} for ${url}`)
   return (await resp.json()) as T
 }
 
@@ -204,23 +230,29 @@ async function fetchOneSeriesCatalog(
   jwt: string,
   onSeasonFailure: (reason: string) => void,
 ): Promise<CrunchyrollSeriesCatalog> {
-  const seasons = await fetchSeriesSeasons(seriesId, jwt)
+  const allSeasons = await fetchSeriesSeasons(seriesId, jwt)
   const catalog: CrunchyrollSeriesCatalog = { seriesId, seasons: [] }
 
-  for (const s of seasons) {
-    await delay(PAGE_DELAY_MS)
-    try {
-      const eps = await fetchSeasonEpisodes(s.id, jwt)
-      const number = s.season_number ?? s.season_sequence_number ?? catalog.seasons.length + 1
-      catalog.seasons.push({
-        id: s.id,
-        number,
-        ...(s.title && { title: s.title }),
-        episodes: eps,
-      })
-    } catch (err) {
-      onSeasonFailure(err instanceof Error ? err.message : String(err))
+  // Fetch all seasons' episode lists in parallel — no artificial delay between them.
+  const seasonResults = await Promise.allSettled(
+    allSeasons.map((s) => fetchSeasonEpisodes(s.id, jwt).then((eps) => ({ s, eps })))
+  )
+
+  for (const result of seasonResults) {
+    if (result.status === 'rejected') {
+      // Auth errors must bubble up and abort the whole sync.
+      if (result.reason instanceof CrunchyrollAuthError) throw result.reason
+      onSeasonFailure(result.reason instanceof Error ? result.reason.message : String(result.reason))
+      continue
     }
+    const { s, eps } = result.value
+    const number = s.season_number ?? s.season_sequence_number ?? catalog.seasons.length + 1
+    catalog.seasons.push({
+      id: s.id,
+      number,
+      ...(s.title && { title: s.title }),
+      episodes: eps,
+    })
   }
 
   return catalog
@@ -244,25 +276,35 @@ async function* streamCatalogsForSeries(
   jwt: string,
   onProgress: (ev: CatalogProgress) => void,
 ): AsyncGenerator<ShowCatalog<CrunchyrollSeriesCatalog>> {
-  let idx = 0
-  for (const seriesId of seriesIds) {
-    idx++
-    try {
-      const catalog = await fetchOneSeriesCatalog(seriesId, jwt, (reason) => {
-        onProgress({ index: idx, total: seriesIds.length, showId: seriesId, ok: false, reason })
+  // Process in windows of CATALOG_CONCURRENCY — each window fires in parallel,
+  // auth errors propagate out of Promise.all and terminate the generator.
+  for (let i = 0; i < seriesIds.length; i += CATALOG_CONCURRENCY) {
+    const window = seriesIds.slice(i, i + CATALOG_CONCURRENCY)
+    const windowResults = await Promise.all(
+      window.map(async (seriesId, j) => {
+        const totalIdx = i + j + 1
+        try {
+          const catalog = await fetchOneSeriesCatalog(seriesId, jwt, (reason) => {
+            onProgress({ index: totalIdx, total: seriesIds.length, showId: seriesId, ok: false, reason })
+          })
+          onProgress({ index: totalIdx, total: seriesIds.length, showId: seriesId, ok: true })
+          return { ok: true as const, seriesId, catalog }
+        } catch (err) {
+          if (err instanceof CrunchyrollAuthError) throw err
+          onProgress({
+            index: totalIdx,
+            total: seriesIds.length,
+            showId: seriesId,
+            ok: false,
+            reason: err instanceof Error ? err.message : String(err),
+          })
+          return { ok: false as const, seriesId }
+        }
       })
-      onProgress({ index: idx, total: seriesIds.length, showId: seriesId, ok: true })
-      yield { showId: seriesId, raw: catalog }
-    } catch (err) {
-      onProgress({
-        index: idx,
-        total: seriesIds.length,
-        showId: seriesId,
-        ok: false,
-        reason: err instanceof Error ? err.message : String(err),
-      })
+    )
+    for (const result of windowResults) {
+      if (result.ok) yield { showId: result.seriesId, raw: result.catalog }
     }
-    await delay(PAGE_DELAY_MS)
   }
 }
 
@@ -434,14 +476,16 @@ export const crunchyrollAdapter: ProviderAdapter = {
   },
 
   async *paginateHistory(onProgress): AsyncGenerator<CrunchyrollHistoryItem> {
-    const session = await getSession<CrunchyrollSession>('crunchyroll')
-    if (!session) throw new Error('No Crunchyroll session. Open crunchyroll.com first.')
-
-    const { jwt, profileId } = session
     let page = 1
     let totalKnown: number | null = null
 
     while (true) {
+      // Re-read the session each page so a refresh triggered by authedFetch on
+      // a previous page (or by another concurrent sync path) is picked up here.
+      const session = await getSession<CrunchyrollSession>('crunchyroll')
+      if (!session) throw new Error('No Crunchyroll session. Open crunchyroll.com first.')
+      const { jwt, profileId } = session
+
       const url = `${CR_BASE}/${encodeURIComponent(profileId)}/watch-history?locale=en-US&page=${page}&page_size=${PAGE_SIZE}&preferred_audio_language=en-US`
       const json = await authedFetch<HistoryPageResponse>(url, jwt)
       if (totalKnown === null && typeof json.total === 'number') totalKnown = json.total
@@ -527,6 +571,8 @@ export const crunchyrollAdapter: ProviderAdapter = {
   },
 
   async *streamCatalogsForShows(showIds, onProgress): AsyncGenerator<ShowCatalog<CrunchyrollSeriesCatalog>> {
+    // Read the latest session just before streaming; authedFetch refreshes it
+    // mid-stream if the JWT expires, so we always start with the freshest token.
     const session = await getSession<CrunchyrollSession>('crunchyroll')
     if (!session) throw new Error('No Crunchyroll session.')
     yield* streamCatalogsForSeries(showIds, session.jwt, onProgress)

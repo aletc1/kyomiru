@@ -21,8 +21,10 @@ import { adapters } from './providers/index.js'
 import type { CheckpointItem } from './providers/types.js'
 import { t } from './i18n.js'
 
-const CHUNK_SHOW_COUNT = 10
+const CHUNK_SHOW_COUNT = 25
 const RESOLVE_CHUNK_SIZE = 500
+// Maximum items per Phase-A (items-only) chunk, to stay under the 2 MB body limit.
+const FRESH_PHASE_CHUNK_SIZE = 500
 
 export type SyncEvent =
   | { type: 'info'; message: string }
@@ -217,7 +219,7 @@ export async function runSync(providerKey: string, emit: Emit): Promise<LastSync
 
   let batch = 0
 
-  // ── Phase A: items-only chunk for fresh (known) shows ──────────────────────
+  // ── Phase A: items-only chunks for fresh (known) shows ─────────────────────
   if (!checkpoint.freshPhaseDone && checkpoint.freshShowIds.length > 0) {
     const freshItems: IngestItem[] = []
     for (const showId of checkpoint.freshShowIds) {
@@ -229,8 +231,17 @@ export async function runSync(providerKey: string, emit: Emit): Promise<LastSync
         type: 'info',
         message: `Sending ${freshItems.length} item(s) for ${checkpoint.freshShowIds.length} already-known show(s)…`,
       })
-      batch++
-      await postProviderChunk(api, providerKey, { runId: checkpoint.runId, items: freshItems, shows: [] }, emit, batch)
+      // Sub-chunk to stay within the 2 MB body limit on heavy accounts.
+      for (let i = 0; i < freshItems.length; i += FRESH_PHASE_CHUNK_SIZE) {
+        batch++
+        await postProviderChunk(
+          api,
+          providerKey,
+          { runId: checkpoint.runId, items: freshItems.slice(i, i + FRESH_PHASE_CHUNK_SIZE), shows: [] },
+          emit,
+          batch,
+        )
+      }
     }
     checkpoint.freshPhaseDone = true
     await setCheckpoint(checkpoint)

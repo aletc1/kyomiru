@@ -13,6 +13,8 @@ import { enqueueEnrichment, type EnrichmentJobData } from '../workers/enrichment
 import { logger } from '../util/logger.js'
 
 const RUN_KEY_TTL_SECONDS = 3600
+// Batch size for multi-row INSERTs — stays well under Postgres's 65 535 parameter limit.
+const INSERT_BATCH = 500
 
 function runKey(providerKey: string, runId: string, suffix: string): string {
   return `kyomiru:sync:${providerKey}:${runId}:${suffix}`
@@ -23,10 +25,8 @@ const WATCHED_THRESHOLD = 0.9
 /**
  * Upsert a show's full season/episode tree.
  *
- * Idempotent: uses ON CONFLICT DO NOTHING on the natural keys
- * (seasons_show_number_idx, episodes_season_number_idx,
- * episode_providers_external_idx) so re-ingesting the same catalog is a no-op.
- * seasons.episode_count is updated on conflict so the largest known count wins.
+ * Idempotent via ON CONFLICT on the natural keys. Uses bulk SQL so the number
+ * of round-trips is O(1) rather than O(seasons × episodes).
  *
  * Pass providerKey=null for enrichment-sourced trees (TMDb/AniList), where
  * episodes don't map to a streaming provider's external id.
@@ -37,54 +37,76 @@ export async function upsertShowCatalog(
   providerKey: string | null,
   seasonTrees: SeasonTree[],
 ): Promise<void> {
+  if (seasonTrees.length === 0) return
+
   if (providerKey) {
     await db.update(showProviders)
       .set({ catalogSyncedAt: new Date() })
       .where(and(eq(showProviders.showId, showId), eq(showProviders.providerKey, providerKey)))
   }
 
+  // ── Bulk upsert all seasons ────────────────────────────────────────────────
+  const seasonValues = seasonTrees.map((s) => ({
+    showId,
+    seasonNumber: s.number,
+    title: s.title ?? null,
+    airDate: s.airDate ?? null,
+    episodeCount: s.episodes.length,
+    titles: (s.titles ?? (s.title ? { en: s.title } : {})) as Record<string, string>,
+  }))
+
+  const insertedSeasons: { id: string; seasonNumber: number }[] = []
+  for (let i = 0; i < seasonValues.length; i += INSERT_BATCH) {
+    const rows = await db.insert(seasons)
+      .values(seasonValues.slice(i, i + INSERT_BATCH))
+      .onConflictDoUpdate({
+        target: [seasons.showId, seasons.seasonNumber],
+        set: {
+          episodeCount: sql`GREATEST(${seasons.episodeCount}, EXCLUDED.episode_count)`,
+          titles: sql`${seasons.titles} || EXCLUDED.titles`,
+        },
+      })
+      .returning({ id: seasons.id, seasonNumber: seasons.seasonNumber })
+    insertedSeasons.push(...rows)
+  }
+
+  const seasonIdByNumber = new Map(insertedSeasons.map((s) => [s.seasonNumber, s.id]))
+
+  // ── Collect all episodes + their external IDs ──────────────────────────────
+  const allEpisodeValues: (typeof episodes.$inferInsert)[] = []
+  // Parallel list that maps each episode value to its external provider ID (if any).
+  const episodeExternalIds: Array<{ seasonId: string; episodeNumber: number; externalId: string }> = []
+
   for (const s of seasonTrees) {
-    const seasonTitles = s.titles ?? (s.title ? { en: s.title } : {})
-    const [season] = await db.insert(seasons).values({
-      showId,
-      seasonNumber: s.number,
-      title: s.title ?? null,
-      airDate: s.airDate ?? null,
-      episodeCount: s.episodes.length,
-      titles: seasonTitles,
-    }).onConflictDoUpdate({
-      target: [seasons.showId, seasons.seasonNumber],
-      set: {
-        episodeCount: sql`GREATEST(${seasons.episodeCount}, EXCLUDED.episode_count)`,
-        titles: sql`${seasons.titles} || EXCLUDED.titles`,
-      },
-    }).returning({ id: seasons.id })
-
-    const seasonId = season?.id ?? (await db.select({ id: seasons.id })
-      .from(seasons)
-      .where(and(eq(seasons.showId, showId), eq(seasons.seasonNumber, s.number)))
-      .then((r) => r[0]?.id))
-
+    const seasonId = seasonIdByNumber.get(s.number)
     if (!seasonId) continue
-
     for (const e of s.episodes) {
-      // `COALESCE(existing, incoming)` preserves any already-set column on the
-      // existing row (e.g. values the extension wrote from a provider's own
-      // catalog) while letting enrichment fill gaps on rows created earlier
-      // without that data (e.g. Netflix history-fallback shows get real
-      // titles / air dates once TMDb enrichment runs).
-      const epTitles = e.titles ?? (e.title ? { en: e.title } : {})
-      const epDescriptions = e.descriptions ?? {}
-      const [ep] = await db.insert(episodes).values({
+      const epTitles = (e.titles ?? (e.title ? { en: e.title } : {})) as Record<string, string>
+      allEpisodeValues.push({
         seasonId,
         showId,
         episodeNumber: e.number,
         title: e.title ?? null,
         titles: epTitles,
-        descriptions: epDescriptions,
+        descriptions: (e.descriptions ?? {}) as Record<string, string>,
         durationSeconds: e.durationSeconds ?? null,
         airDate: e.airDate ?? null,
-      }).onConflictDoUpdate({
+      })
+      if (e.externalId) {
+        episodeExternalIds.push({ seasonId, episodeNumber: e.number, externalId: e.externalId })
+      }
+    }
+  }
+
+  if (allEpisodeValues.length === 0) return
+
+  // ── Bulk upsert episodes in batches ───────────────────────────────────────
+  const insertedEps: { id: string; seasonId: string; episodeNumber: number }[] = []
+
+  for (let i = 0; i < allEpisodeValues.length; i += INSERT_BATCH) {
+    const rows = await db.insert(episodes)
+      .values(allEpisodeValues.slice(i, i + INSERT_BATCH))
+      .onConflictDoUpdate({
         target: [episodes.seasonId, episodes.episodeNumber],
         set: {
           title: sql`COALESCE(${episodes.title}, EXCLUDED.title)`,
@@ -93,23 +115,29 @@ export async function upsertShowCatalog(
           durationSeconds: sql`COALESCE(${episodes.durationSeconds}, EXCLUDED.duration_seconds)`,
           airDate: sql`COALESCE(${episodes.airDate}, EXCLUDED.air_date)`,
         },
-      }).returning({ id: episodes.id })
+      })
+      .returning({ id: episodes.id, seasonId: episodes.seasonId, episodeNumber: episodes.episodeNumber })
+    insertedEps.push(...rows)
+  }
 
-      const epId = ep?.id ?? (await db.select({ id: episodes.id })
-        .from(episodes)
-        .where(and(eq(episodes.seasonId, seasonId), eq(episodes.episodeNumber, e.number)))
-        .then((r) => r[0]?.id))
+  if (!providerKey || episodeExternalIds.length === 0) return
 
-      if (!epId) continue
+  // ── Bulk insert episode_providers ─────────────────────────────────────────
+  // Build seasonId:episodeNumber → externalId lookup.
+  const externalIdMap = new Map(
+    episodeExternalIds.map((e) => [`${e.seasonId}:${e.episodeNumber}`, e.externalId])
+  )
 
-      if (providerKey && e.externalId) {
-        await db.insert(episodeProviders).values({
-          episodeId: epId,
-          providerKey,
-          externalId: e.externalId,
-        }).onConflictDoNothing()
-      }
-    }
+  const epProviderValues: (typeof episodeProviders.$inferInsert)[] = []
+  for (const ep of insertedEps) {
+    const externalId = externalIdMap.get(`${ep.seasonId}:${ep.episodeNumber}`)
+    if (externalId) epProviderValues.push({ episodeId: ep.id, providerKey, externalId })
+  }
+
+  for (let i = 0; i < epProviderValues.length; i += INSERT_BATCH) {
+    await db.insert(episodeProviders)
+      .values(epProviderValues.slice(i, i + INSERT_BATCH))
+      .onConflictDoNothing()
   }
 }
 
@@ -129,6 +157,8 @@ interface IngestCounters {
   itemsSkipped: number
 }
 
+// ── Legacy per-item helpers (used only by the no-Redis ingestItems path) ──────
+
 async function processHistoryItem(
   db: DbClient,
   userId: string,
@@ -139,7 +169,6 @@ async function processHistoryItem(
   counters: IngestCounters,
   enrichmentQueue: Queue<EnrichmentJobData> | null,
 ): Promise<void> {
-  // Upsert raw watch event
   await db.insert(watchEvents).values({
     userId,
     providerKey,
@@ -261,10 +290,13 @@ async function markRunError(db: DbClient, runId: string, counters: IngestCounter
 /**
  * Ingest one chunk of items+shows against an already-running sync run.
  *
- * Idempotent and safe to call many times for the same runId. Tracks touched
- * shows and counter deltas in Redis; the caller must call
- * `finalizeIngestRun` once the stream has drained to run the final state
- * recompute and mark the run `success`.
+ * Uses bulk SQL (one query per table, batched by INSERT_BATCH rows) rather
+ * than per-item queries. All user-facing writes (watch_events,
+ * user_episode_progress, user_show_state) are wrapped in a single transaction
+ * so a partial failure leaves no half-written rows.
+ *
+ * Catalog upserts happen outside the transaction — they write global show
+ * data and must be visible before the transaction resolves episode IDs.
  */
 export async function ingestChunk(
   db: DbClient,
@@ -276,18 +308,234 @@ export async function ingestChunk(
   enrichmentQueue: Queue<EnrichmentJobData> | null,
   redis: Redis,
 ): Promise<IngestCounters> {
-  const showsByExt = new Map(showTrees.map((s) => [s.externalId, s]))
-  const resolveShow: ShowResolver = async (externalShowId) => showsByExt.get(externalShowId) ?? null
-
-  const touchedShowIds = new Set<string>()
   const counters: IngestCounters = { itemsIngested: 0, itemsNew: 0, itemsSkipped: 0 }
+  const touchedShowIds = new Set<string>()
 
   await markUserServiceConnected(db, userId, providerKey)
 
   try {
-    for (const item of items) {
-      await processHistoryItem(db, userId, providerKey, item, resolveShow, touchedShowIds, counters, enrichmentQueue)
+    const showsByExt = new Map(showTrees.map((s) => [s.externalId, s]))
+
+    // All external show IDs referenced by items in this chunk.
+    const allExtShowIds = [...new Set(
+      items.flatMap((i) => (i.externalShowId ? [i.externalShowId] : []))
+    )]
+
+    // ── Step 1: Bulk resolve known shows ──────────────────────────────────────
+    const showIdByExtId = new Map<string, string>()
+    if (allExtShowIds.length > 0) {
+      const spRows = await db
+        .select({ externalId: showProviders.externalId, showId: showProviders.showId })
+        .from(showProviders)
+        .where(and(
+          eq(showProviders.providerKey, providerKey),
+          inArray(showProviders.externalId, allExtShowIds),
+        ))
+      for (const r of spRows) showIdByExtId.set(r.externalId, r.showId)
     }
+
+    // ── Step 2: Insert new shows (typically ≤ a handful per chunk) ────────────
+    // These are sequential to handle the race-condition fallback cleanly.
+    const newExtIds = allExtShowIds.filter((id) => !showIdByExtId.has(id) && showsByExt.has(id))
+    for (const extId of newExtIds) {
+      const tree = showsByExt.get(extId)!
+      const [newShow] = await db.insert(shows).values({
+        canonicalTitle: tree.title,
+        titleNormalized: tree.title.toLowerCase().replace(/[^\w\s]/g, ''),
+        description: tree.description ?? null,
+        coverUrl: tree.coverUrl ?? null,
+        kind: (tree.kind ?? 'anime') as 'anime' | 'tv' | 'movie',
+        titles: { en: tree.title },
+        descriptions: tree.description ? { en: tree.description } : {},
+      }).onConflictDoNothing().returning({ id: shows.id })
+
+      if (newShow) {
+        await db.insert(showProviders).values({
+          showId: newShow.id,
+          providerKey,
+          externalId: extId,
+        }).onConflictDoNothing()
+        showIdByExtId.set(extId, newShow.id)
+        if (enrichmentQueue) await enqueueEnrichment(enrichmentQueue, newShow.id)
+      } else {
+        // Race: another concurrent request already inserted this show; use its id.
+        const [existing] = await db
+          .select({ showId: showProviders.showId })
+          .from(showProviders)
+          .where(and(eq(showProviders.providerKey, providerKey), eq(showProviders.externalId, extId)))
+        if (existing) showIdByExtId.set(extId, existing.showId)
+      }
+    }
+
+    // ── Step 3: Upsert catalogs for shows whose tree was sent in this chunk ───
+    // Fast path (Phase A) sends shows=[] so this is a no-op for incremental syncs.
+    for (const [extId, showId] of showIdByExtId) {
+      const tree = showsByExt.get(extId)
+      if (tree && tree.seasons.length > 0) {
+        await upsertShowCatalog(db, showId, providerKey, tree.seasons)
+      }
+    }
+
+    // ── Step 4: Bulk resolve external item IDs → episode IDs ──────────────────
+    const allItemExtIds = items.map((i) => i.externalItemId)
+    const episodeIdByExtItemId = new Map<string, string>()
+
+    for (let i = 0; i < allItemExtIds.length; i += INSERT_BATCH) {
+      const slice = allItemExtIds.slice(i, i + INSERT_BATCH)
+      const epRows = await db
+        .select({ externalId: episodeProviders.externalId, episodeId: episodeProviders.episodeId })
+        .from(episodeProviders)
+        .where(and(
+          eq(episodeProviders.providerKey, providerKey),
+          inArray(episodeProviders.externalId, slice),
+        ))
+      for (const r of epRows) episodeIdByExtItemId.set(r.externalId, r.episodeId)
+    }
+
+    // ── Step 5: Resolve episode → showId ─────────────────────────────────────
+    const resolvedEpIds = [...new Set(episodeIdByExtItemId.values())]
+    const showIdByEpisodeId = new Map<string, string>()
+
+    for (let i = 0; i < resolvedEpIds.length; i += INSERT_BATCH) {
+      const slice = resolvedEpIds.slice(i, i + INSERT_BATCH)
+      const epRows = await db
+        .select({ id: episodes.id, showId: episodes.showId })
+        .from(episodes)
+        .where(inArray(episodes.id, slice))
+      for (const r of epRows) showIdByEpisodeId.set(r.id, r.showId)
+    }
+
+    const resolvedItems = items.filter((item) => episodeIdByExtItemId.has(item.externalItemId))
+    counters.itemsSkipped = items.length - resolvedItems.length
+
+    if (resolvedItems.length > 0) {
+      // ── Step 6: All user-facing writes in a single transaction ────────────
+      // Counters and touchedShowIds are populated inside the callback and only
+      // applied to the outer scope after a successful commit.
+      const txResult = await db.transaction(async (tx) => {
+        // 6a. Bulk insert watch_events (idempotent via ON CONFLICT DO NOTHING)
+        for (let i = 0; i < items.length; i += INSERT_BATCH) {
+          await tx.insert(watchEvents)
+            .values(items.slice(i, i + INSERT_BATCH).map((item) => ({
+              userId,
+              providerKey,
+              externalItemId: item.externalItemId,
+              watchedAt: item.watchedAt,
+              playheadSeconds: item.playheadSeconds ?? null,
+              durationSeconds: item.durationSeconds ?? null,
+              fullyWatched: item.fullyWatched ?? false,
+              raw: (item.raw ?? {}) as Record<string, unknown>,
+            })))
+            .onConflictDoNothing()
+        }
+
+        // 6b. Check which progress rows already exist to count itemsNew correctly.
+        const resolvedEpIdsForItems = resolvedItems.map(
+          (item) => episodeIdByExtItemId.get(item.externalItemId)!
+        )
+        const existingProgress = await tx
+          .select({ episodeId: userEpisodeProgress.episodeId })
+          .from(userEpisodeProgress)
+          .where(and(
+            eq(userEpisodeProgress.userId, userId),
+            inArray(userEpisodeProgress.episodeId, resolvedEpIdsForItems),
+          ))
+        const existingSet = new Set(existingProgress.map((r) => r.episodeId))
+
+        // 6c. Build progress rows, deduping by episodeId so the bulk INSERT
+        // never carries two rows targeting the same (userId, episodeId) — Postgres
+        // rejects "ON CONFLICT DO UPDATE command cannot affect row a second time"
+        // when that happens. Multiple items per episode are realistic: Netflix
+        // movieIDs repeat across re-watches and Crunchyroll panel.id can too.
+        // Within-chunk values are merged with the same semantics as the SQL
+        // ON CONFLICT clause, and each episodeId is counted as new at most once.
+        let localIngested = 0
+        let localNew = 0
+        const localTouched = new Set<string>()
+        const seenNewEpisodes = new Set<string>()
+        const progressByEpisode = new Map<string, typeof userEpisodeProgress.$inferInsert>()
+
+        for (const item of resolvedItems) {
+          const episodeId = episodeIdByExtItemId.get(item.externalItemId)!
+          const watched = isWatched(item.playheadSeconds, item.durationSeconds, item.fullyWatched)
+
+          localIngested++
+          if (!existingSet.has(episodeId) && !seenNewEpisodes.has(episodeId)) {
+            localNew++
+            seenNewEpisodes.add(episodeId)
+          }
+
+          const showId = showIdByEpisodeId.get(episodeId)
+          if (showId) localTouched.add(showId)
+
+          const newRow: typeof userEpisodeProgress.$inferInsert = {
+            userId,
+            episodeId,
+            playheadSeconds: item.playheadSeconds ?? 0,
+            watched,
+            watchedAt: watched ? item.watchedAt : null,
+            lastEventAt: item.watchedAt,
+          }
+
+          const prev = progressByEpisode.get(episodeId)
+          if (!prev) {
+            progressByEpisode.set(episodeId, newRow)
+          } else {
+            // First non-null wins, matching COALESCE(existing, EXCLUDED) semantics.
+            const mergedWatchedAt: Date | null = prev.watchedAt ?? newRow.watchedAt ?? null
+            const prevLast = prev.lastEventAt as Date
+            const newLast = newRow.lastEventAt as Date
+            progressByEpisode.set(episodeId, {
+              userId,
+              episodeId,
+              playheadSeconds: Math.max(prev.playheadSeconds ?? 0, newRow.playheadSeconds ?? 0),
+              watched: Boolean(prev.watched) || Boolean(newRow.watched),
+              watchedAt: mergedWatchedAt,
+              lastEventAt: prevLast >= newLast ? prevLast : newLast,
+            })
+          }
+        }
+
+        const progressValues = [...progressByEpisode.values()]
+
+        // 6d. Bulk upsert user_episode_progress
+        for (let i = 0; i < progressValues.length; i += INSERT_BATCH) {
+          await tx.insert(userEpisodeProgress)
+            .values(progressValues.slice(i, i + INSERT_BATCH))
+            .onConflictDoUpdate({
+              target: [userEpisodeProgress.userId, userEpisodeProgress.episodeId],
+              set: {
+                playheadSeconds: sql`GREATEST(user_episode_progress.playhead_seconds, EXCLUDED.playhead_seconds)`,
+                watched: sql`user_episode_progress.watched OR EXCLUDED.watched`,
+                watchedAt: sql`COALESCE(user_episode_progress.watched_at, EXCLUDED.watched_at)`,
+                lastEventAt: sql`GREATEST(user_episode_progress.last_event_at, EXCLUDED.last_event_at)`,
+              },
+            })
+        }
+
+        // 6e. Ensure user_show_state rows exist (ON CONFLICT DO NOTHING preserves status/rating).
+        if (localTouched.size > 0) {
+          const now = new Date()
+          await tx.insert(userShowState)
+            .values([...localTouched].map((showId) => ({
+              userId,
+              showId,
+              status: 'in_progress' as const,
+              lastActivityAt: now,
+              updatedAt: now,
+            })))
+            .onConflictDoNothing()
+        }
+
+        return { localIngested, localNew, localTouched }
+      })
+
+      // Apply transaction results to outer counters only after successful commit.
+      counters.itemsIngested = txResult.localIngested
+      counters.itemsNew = txResult.localNew
+      for (const id of txResult.localTouched) touchedShowIds.add(id)
+    }
+
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     logger.error({ err, runId }, 'Ingest chunk failed')
@@ -387,6 +635,7 @@ export async function ingestItems(
     return finalizeIngestRun(db, userId, providerKey, runId, redis)
   }
 
+  // Legacy path (no Redis — used by tests without a Redis instance).
   const showsByExt = new Map(showTrees.map((s) => [s.externalId, s]))
   const resolveShow: ShowResolver = async (externalShowId) => showsByExt.get(externalShowId) ?? null
 
@@ -441,9 +690,6 @@ async function resolveEpisode(
 
   if (existingShow) {
     showId = existingShow.showId
-    // Even though the show is known, the payload may carry seasons/episodes
-    // that are new to us (e.g. a newly-aired season). Upsert the whole tree
-    // so stateMachine can flip watched → new_content.
     const tree = await resolveShow(showExtId)
     if (tree) await upsertShowCatalog(db, showId, providerKey, tree.seasons)
   } else {
@@ -503,7 +749,7 @@ export interface ResolvedShowCatalog {
 }
 
 /**
- * For each external show id, report whether Kyomiru has Crunchyroll catalog
+ * For each external show id, report whether Kyomiru has provider catalog
  * data for it (episode_providers rows) and the per-season episode coverage.
  * The extension uses this to skip catalog fetches for shows already indexed,
  * routing them through the fast items-only path instead.
@@ -530,7 +776,6 @@ export async function resolveShowCatalogStatus(
   const knownByExternalId = new Map(spRows.map((r) => [r.externalId, r]))
   const knownShowIds = spRows.map((r) => r.showId)
 
-  // showId → { seasonNumber → maxEpisodeNumber }
   const showCoverageMap = new Map<string, Record<number, number>>()
 
   if (knownShowIds.length > 0) {

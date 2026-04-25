@@ -222,6 +222,124 @@ describe('refreshCrunchyrollSession', () => {
   })
 })
 
+describe('authedFetch JWT refresh on 401', () => {
+  const validProfileId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+
+  beforeEach(async () => {
+    const storage = await import('../storage.js')
+    // The session is mutable across the test so that setSession (called by
+    // refreshCrunchyrollSession) is visible to subsequent getSession reads.
+    let currentSession: { jwt: string; profileId: string; capturedAt: number } | null =
+      { jwt: 'stale.jwt', profileId: validProfileId, capturedAt: 0 }
+    vi.mocked(storage.getSession).mockImplementation(() => Promise.resolve(currentSession))
+    vi.mocked(storage.setSession).mockImplementation((_key, sess) => {
+      currentSession = sess as typeof currentSession
+      return Promise.resolve()
+    })
+    vi.mocked(storage.getStoredProfileId).mockResolvedValue(validProfileId)
+    vi.mocked(storage.setStoredProfileId).mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  it('refreshes the JWT on 401 and retries the original request with the fresh token', async () => {
+    let authCalls = 0
+    const seenAuthHeaders: string[] = []
+
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.startsWith('https://www.crunchyroll.com/auth/v1/token')) {
+        authCalls++
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ access_token: 'fresh.jwt', profile_id: validProfileId }),
+        })
+      }
+      const auth = (init?.headers as Record<string, string> | undefined)?.['Authorization']
+      seenAuthHeaders.push(auth ?? '')
+      // First call uses stale.jwt → 401. Retry uses fresh.jwt → empty seasons OK.
+      if (auth === 'Bearer stale.jwt') return Promise.resolve({ ok: false, status: 401 })
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ data: [] }) })
+    }))
+
+    const catalogs: unknown[] = []
+    for await (const c of crunchyrollAdapter.streamCatalogsForShows(['series-1'], () => {})) {
+      catalogs.push(c)
+    }
+
+    expect(authCalls).toBe(1)
+    expect(seenAuthHeaders).toEqual(['Bearer stale.jwt', 'Bearer fresh.jwt'])
+    expect(catalogs).toHaveLength(1)
+  })
+
+  it('throws CrunchyrollAuthError when the refresh itself also fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url.startsWith('https://www.crunchyroll.com/auth/v1/token')) {
+        return Promise.resolve({ ok: false, status: 401 })
+      }
+      return Promise.resolve({ ok: false, status: 401 })
+    }))
+
+    let caught: unknown = null
+    try {
+      for await (const _c of crunchyrollAdapter.streamCatalogsForShows(['series-1'], () => {})) {
+        // drain
+      }
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(Error)
+    expect((caught as Error).name).toBe('CrunchyrollAuthError')
+  })
+
+  it('coalesces concurrent 401s from parallel catalog fetches into a single refresh call', async () => {
+    let authCalls = 0
+    let pendingAuthResolvers: Array<() => void> = []
+
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.startsWith('https://www.crunchyroll.com/auth/v1/token')) {
+        authCalls++
+        // Hold the refresh response until all parallel callers have queued up,
+        // so we exercise the in-flight dedup rather than serial calls.
+        return new Promise((resolve) => {
+          pendingAuthResolvers.push(() => resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ access_token: 'fresh.jwt', profile_id: validProfileId }),
+          }))
+        })
+      }
+      const auth = (init?.headers as Record<string, string> | undefined)?.['Authorization']
+      if (auth === 'Bearer stale.jwt') return Promise.resolve({ ok: false, status: 401 })
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ data: [] }) })
+    }))
+
+    // Fan out 4 series — all hit 401 in parallel; without deduping we'd see 4 refresh calls.
+    const drainPromise = (async () => {
+      const out: unknown[] = []
+      for await (const c of crunchyrollAdapter.streamCatalogsForShows(
+        ['s1', 's2', 's3', 's4'],
+        () => {},
+      )) out.push(c)
+      return out
+    })()
+
+    // Yield repeatedly so all parallel 401s queue their refresh waits before we resolve.
+    for (let i = 0; i < 20 && pendingAuthResolvers.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 0))
+    }
+    pendingAuthResolvers.forEach((resolve) => resolve())
+    pendingAuthResolvers = []
+
+    const catalogs = await drainPromise
+    expect(authCalls).toBe(1)
+    expect(catalogs).toHaveLength(4)
+  })
+})
+
 describe('crunchyrollAdapter.onRequest stored-profileId fallback', () => {
   const validProfileId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
 
