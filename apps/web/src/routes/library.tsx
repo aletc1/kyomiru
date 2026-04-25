@@ -1,9 +1,10 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { z } from 'zod'
-import { Search, LayoutGrid, List } from 'lucide-react'
+import { Search, LayoutGrid, List, SlidersHorizontal } from 'lucide-react'
 import { useState, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
 import { Q } from '@/lib/queryKeys'
 import { useAppStore, LIBRARY_STATUS_VALUES, LIBRARY_SORT_VALUES, LIBRARY_KIND_VALUES, DEFAULT_LIBRARY_SORT } from '@/lib/store'
@@ -46,6 +47,13 @@ function LibraryPage() {
   const kind = search.kind ?? libraryKind
   const provider = search.provider ?? libraryProvider
   const q = search.q
+
+  const [filtersOpen, setFiltersOpen] = useState(
+    () =>
+      (search.sort ?? librarySort) !== DEFAULT_LIBRARY_SORT ||
+      (search.kind ?? libraryKind) !== undefined ||
+      (search.provider ?? libraryProvider) !== undefined,
+  )
 
   useEffect(() => {
     const patch: Record<string, string | undefined> = {}
@@ -130,6 +138,11 @@ function LibraryPage() {
     ? facetProviders
     : [...facetProviders, { key: provider, displayName: provider }]
 
+  const activeCount =
+    (sort !== DEFAULT_LIBRARY_SORT ? 1 : 0) +
+    (kind !== undefined ? 1 : 0) +
+    (provider !== undefined ? 1 : 0)
+
   const kindLabel = (k: string) => {
     if (k === 'anime') return t('kind_anime')
     if (k === 'tv') return t('kind_tv')
@@ -139,63 +152,83 @@ function LibraryPage() {
 
   return (
     <div className="space-y-4">
-      {/* Top bar */}
-      <div className="flex flex-wrap gap-3 items-center">
-        <div className="relative flex-1 min-w-48">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            placeholder={t('search_placeholder')}
-            value={searchInput}
-            onChange={(e) => handleSearch(e.target.value)}
-          />
+      {/* Toolbar: stacks on mobile (search row + collapsible filters); single inline row on sm+ */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+        {/* Search row — wraps search/view/filter trigger as one mobile row, becomes transparent on sm+ */}
+        <div className="flex gap-3 items-center sm:contents">
+          <div className="relative flex-1 min-w-48">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder={t('search_placeholder')}
+              value={searchInput}
+              onChange={(e) => handleSearch(e.target.value)}
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
+            aria-label={t('toggle_view')}
+          >
+            {viewMode === 'grid' ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className={cn('sm:hidden relative', activeCount > 0 && 'border-primary text-primary')}
+            onClick={() => setFiltersOpen((o) => !o)}
+            aria-label={t('toggle_filters')}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            {activeCount > 0 && (
+              <span className="absolute -top-1 -right-1 h-4 min-w-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] flex items-center justify-center">
+                {activeCount}
+              </span>
+            )}
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
-          aria-label={t('toggle_view')}
-        >
-          {viewMode === 'grid' ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
-        </Button>
-        <Select value={sort} onValueChange={handleSortChange}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder={t('sort_by')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="recent_activity">{t('sort_recent_activity')}</SelectItem>
-            <SelectItem value="title_asc">{t('sort_title_asc')}</SelectItem>
-            <SelectItem value="rating">{t('sort_rating')}</SelectItem>
-            <SelectItem value="last_watched">{t('sort_last_watched')}</SelectItem>
-            <SelectItem value="latest_air_date">{t('sort_latest_air_date')}</SelectItem>
-          </SelectContent>
-        </Select>
-        {showKindFilter && (
-          <Select value={kind ?? 'all'} onValueChange={handleKindChange}>
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder={t('filter_type')} />
+        {/* Filters — own row on mobile (toggle), transparent (inline siblings) on sm+ */}
+        <div className={cn('sm:contents', filtersOpen ? 'flex flex-wrap gap-3' : 'hidden')}>
+          <Select value={sort} onValueChange={handleSortChange}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder={t('sort_by')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">{t('filter_all_types')}</SelectItem>
-              {kindOptions.map((k) => (
-                <SelectItem key={k} value={k}>{kindLabel(k)}</SelectItem>
-              ))}
+              <SelectItem value="recent_activity">{t('sort_recent_activity')}</SelectItem>
+              <SelectItem value="title_asc">{t('sort_title_asc')}</SelectItem>
+              <SelectItem value="rating">{t('sort_rating')}</SelectItem>
+              <SelectItem value="last_watched">{t('sort_last_watched')}</SelectItem>
+              <SelectItem value="latest_air_date">{t('sort_latest_air_date')}</SelectItem>
             </SelectContent>
           </Select>
-        )}
-        {showProviderFilter && (
-          <Select value={provider ?? 'all'} onValueChange={handleProviderChange}>
-            <SelectTrigger className="w-52">
-              <SelectValue placeholder={t('filter_provider')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t('filter_all_providers')}</SelectItem>
-              {providerOptions.map((p) => (
-                <SelectItem key={p.key} value={p.key}>{p.displayName}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+          {showKindFilter && (
+            <Select value={kind ?? 'all'} onValueChange={handleKindChange}>
+              <SelectTrigger className="w-full sm:w-44">
+                <SelectValue placeholder={t('filter_type')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('filter_all_types')}</SelectItem>
+                {kindOptions.map((k) => (
+                  <SelectItem key={k} value={k}>{kindLabel(k)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {showProviderFilter && (
+            <Select value={provider ?? 'all'} onValueChange={handleProviderChange}>
+              <SelectTrigger className="w-full sm:w-52">
+                <SelectValue placeholder={t('filter_provider')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('filter_all_providers')}</SelectItem>
+                {providerOptions.map((p) => (
+                  <SelectItem key={p.key} value={p.key}>{p.displayName}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
