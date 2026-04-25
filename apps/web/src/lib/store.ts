@@ -9,6 +9,7 @@ export const LIBRARY_KIND_VALUES = ['anime', 'tv', 'movie'] as const
 export type LibraryStatus = typeof LIBRARY_STATUS_VALUES[number] | undefined
 export type LibrarySort = typeof LIBRARY_SORT_VALUES[number]
 export type LibraryKind = ShowKind | undefined
+export type LibraryGenre = string | undefined
 
 export const DEFAULT_LIBRARY_SORT: LibrarySort = 'recent_activity'
 
@@ -20,6 +21,7 @@ interface AppStore {
   librarySort: LibrarySort
   libraryKind: LibraryKind
   libraryProvider: string | undefined
+  libraryGenre: LibraryGenre
   setSidebarOpen: (open: boolean) => void
   setMobileSidebarOpen: (open: boolean) => void
   setViewMode: (mode: 'grid' | 'list') => void
@@ -27,6 +29,7 @@ interface AppStore {
   setLibrarySort: (sort: LibrarySort) => void
   setLibraryKind: (kind: LibraryKind) => void
   setLibraryProvider: (provider: string | undefined) => void
+  setLibraryGenre: (genre: LibraryGenre) => void
 }
 
 export const useAppStore = create<AppStore>()(
@@ -39,6 +42,7 @@ export const useAppStore = create<AppStore>()(
       librarySort: DEFAULT_LIBRARY_SORT,
       libraryKind: undefined,
       libraryProvider: undefined,
+      libraryGenre: undefined,
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
       setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
       setViewMode: (mode) => set({ viewMode: mode }),
@@ -46,6 +50,7 @@ export const useAppStore = create<AppStore>()(
       setLibrarySort: (sort) => set({ librarySort: sort }),
       setLibraryKind: (kind) => set({ libraryKind: kind }),
       setLibraryProvider: (provider) => set({ libraryProvider: provider }),
+      setLibraryGenre: (genre) => set({ libraryGenre: genre }),
     }),
     {
       name: 'kyomiru-app',
@@ -55,6 +60,7 @@ export const useAppStore = create<AppStore>()(
         librarySort: s.librarySort,
         libraryKind: s.libraryKind,
         libraryProvider: s.libraryProvider,
+        libraryGenre: s.libraryGenre,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<AppStore>

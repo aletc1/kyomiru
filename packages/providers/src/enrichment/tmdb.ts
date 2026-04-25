@@ -152,6 +152,27 @@ export async function fetchTMDbShowTree(
       if (t.data.overview && !descriptions[lang]) descriptions[lang] = t.data.overview
     }
 
+    // Genre names must always be stored in English so the library genre filter
+    // works consistently across all deployments regardless of ENRICHMENT_LOCALES
+    // ordering. When the primary locale is already en-*, reuse the detail
+    // already fetched; otherwise do one extra call for en-US genre names only.
+    let genreSource = detail
+    if (primaryBase !== 'en') {
+      const enResp = await fetchWithTimeout(
+        `${TMDB_BASE}/tv/${tmdbId}?api_key=${encodeURIComponent(apiKey)}&language=en-US`,
+      )
+      if (enResp.ok) {
+        genreSource = (await enResp.json()) as TMDbShowDetail
+      } else {
+        // Falling back to localized genres would silently store e.g. "Comedia"
+        // instead of "Comedy" and break the library genre filter for this row.
+        // Drop genres for this run so we don't pollute the column; the next
+        // re-enrichment can try again.
+        console.warn(`[tmdb] en-US genre fetch HTTP ${enResp.status} for ${tmdbId} — dropping genres for this run`)
+        genreSource = { ...detail, genres: [] }
+      }
+    }
+
     const seasonTrees: SeasonTree[] = []
     const realSeasons = (detail.seasons ?? []).filter((s) => s.season_number > 0)
 
@@ -214,7 +235,7 @@ export async function fetchTMDbShowTree(
     return {
       titles,
       descriptions,
-      genres: (detail.genres ?? []).map((g) => g.name),
+      genres: (genreSource.genres ?? []).map((g) => g.name),
       ...(typeof detail.vote_average === 'number' && { rating: detail.vote_average }),
       ...(detail.original_language && { originalLanguage: detail.original_language }),
       ...(detail.origin_country?.length && { originCountry: detail.origin_country }),

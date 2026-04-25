@@ -13,6 +13,8 @@
   "filter_type": "Type",
   "filter_all_providers": "Tous les services",
   "filter_provider": "Service",
+  "filter_genre": "Genre",
+  "filter_all_genres": "Tous les genres",
   "kind_anime": "Animation",
   "kind_tv": "TV",
   "kind_movie": "Film",
