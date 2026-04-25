@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.5.1...kyomiru-v1.6.0) (2026-04-25)
+
+
+### Features
+
+* **web:** add Open in JustWatch button on show views ([#47](https://github.com/aletc1/kyomiru/issues/47)) ([b9abf07](https://github.com/aletc1/kyomiru/commit/b9abf0775da60f879eb64c29a11282abf3c1b2df))
+
 ## [1.5.1](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.5.0...kyomiru-v1.5.1) (2026-04-25)
 
 
