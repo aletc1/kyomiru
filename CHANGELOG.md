@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.3](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.4.2...kyomiru-v1.4.3) (2026-04-25)
+
+
+### Bug Fixes
+
+* **api:** broaden show classifier to promote any Animation genre to anime ([#37](https://github.com/aletc1/kyomiru/issues/37)) ([575c4c2](https://github.com/aletc1/kyomiru/commit/575c4c248ee4530a41e6bbf1143ccda8369d4af6))
+* **i18n:** update locale imports to .js and add translations for en-U… ([#35](https://github.com/aletc1/kyomiru/issues/35)) ([18b2e73](https://github.com/aletc1/kyomiru/commit/18b2e73cffddd19c766a33fd3cd758841b44948a))
+* **web:** rename Anime label to Animation across all locales ([#39](https://github.com/aletc1/kyomiru/issues/39)) ([6d5e3a5](https://github.com/aletc1/kyomiru/commit/6d5e3a53529418d7b6d9435bdbf1e77fcd6ca693))
+
+
+### Performance Improvements
+
+* **sync:** bulk-SQL ingest, mid-sync JWT refresh, parallel catalog fetch ([#38](https://github.com/aletc1/kyomiru/issues/38)) ([d940144](https://github.com/aletc1/kyomiru/commit/d9401446de61aa6ff2dad94fdccc5b11f202a4c9))
+
 ## [1.4.2](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.4.1...kyomiru-v1.4.2) (2026-04-24)
 
 
