@@ -56,6 +56,11 @@ export function ShowCard({ show }: Props) {
           <Badge variant="new">NEW</Badge>
         </div>
       )}
+      {show.status === 'coming_soon' && (
+        <div className="absolute top-2 left-2 pointer-events-none">
+          <Badge variant="soon">SOON</Badge>
+        </div>
+      )}
       <div className="absolute top-2 right-2">
         {show.providers.length > 0 ? (
           <ProviderLinkButton

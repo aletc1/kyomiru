@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { createDbClient, type DbClient } from '@kyomiru/db/client'
 import {
-  episodes, seasons, shows, users, userEpisodeProgress, userShowState,
+  episodes, episodeProviders, providers, seasons, shows, users, userEpisodeProgress, userShowState,
 } from '@kyomiru/db/schema'
 import { recomputeUserShowState } from '../services/stateMachine.js'
 
@@ -36,7 +36,11 @@ describe.skipIf(!DATABASE_URL)('recomputeUserShowState (DB)', () => {
   async function setup(opts: {
     episodeAirDates: (string | null)[]
     watchedIndices?: number[]
-    initialStatus?: 'in_progress' | 'watched' | 'new_content'
+    // Episode indices that should get an episode_providers row. Used to
+    // simulate extension-fallback NULL eps (which carry a provider link)
+    // versus enrichment-placeholder NULLs (which do not).
+    providerLinkedIndices?: number[]
+    initialStatus?: 'in_progress' | 'watched' | 'new_content' | 'coming_soon'
     initialTotal?: number
   }) {
     const suffix = Math.random().toString(36).slice(2, 10)
@@ -84,6 +88,18 @@ describe.skipIf(!DATABASE_URL)('recomputeUserShowState (DB)', () => {
       )
     }
 
+    if (opts.providerLinkedIndices?.length) {
+      await db.insert(providers).values({ key: 'netflix', displayName: 'Netflix' })
+        .onConflictDoNothing()
+      await db.insert(episodeProviders).values(
+        opts.providerLinkedIndices.map((i) => ({
+          episodeId: epRows[i]!.id,
+          providerKey: 'netflix',
+          externalId: `${suffix}-${i}`,
+        })),
+      )
+    }
+
     await db.insert(userShowState).values({
       userId,
       showId,
@@ -111,8 +127,8 @@ describe.skipIf(!DATABASE_URL)('recomputeUserShowState (DB)', () => {
     return d.toISOString().slice(0, 10)
   }
 
-  it('counts only aired episodes toward total', async () => {
-    // 3 aired + 9 future, all 3 aired watched → 3/3 watched.
+  it('counts only aired episodes toward total; coming_soon when future eps are scheduled', async () => {
+    // 3 aired + 9 future, all 3 aired watched → 3/3 watched, hasUpcoming → coming_soon.
     await setup({
       episodeAirDates: [
         past(30), past(20), past(10),
@@ -127,13 +143,16 @@ describe.skipIf(!DATABASE_URL)('recomputeUserShowState (DB)', () => {
     const state = await readState()
     expect(state.totalEpisodes).toBe(3)
     expect(state.watchedEpisodes).toBe(3)
-    expect(state.status).toBe('watched')
+    expect(state.status).toBe('coming_soon')
   })
 
-  it('treats null air_date as aired (extension-only fallback)', async () => {
+  it('treats provider-linked null air_date as aired (extension-only fallback)', async () => {
+    // Netflix history-only: episodes are written with NULL air_date AND an
+    // episode_providers row. Those NULLs are watched-but-undated, not upcoming.
     await setup({
       episodeAirDates: [null, null, null],
       watchedIndices: [0, 1],
+      providerLinkedIndices: [0, 1, 2],
     })
 
     await recomputeUserShowState(db, userId, showId)
@@ -144,7 +163,25 @@ describe.skipIf(!DATABASE_URL)('recomputeUserShowState (DB)', () => {
     expect(state.status).toBe('in_progress')
   })
 
-  it('today counts as aired (CURRENT_DATE inclusive)', async () => {
+  it('treats unwatched null-air-date enrichment placeholder as upcoming → coming_soon', async () => {
+    // TSUKIMICHI shape: all dated released eps watched, plus a NULL placeholder
+    // (announced future season, no schedule yet) with no episode_providers row.
+    // T>W due to the placeholder; nothing is actionable today; the placeholder
+    // counts as upcoming → CS branch fires.
+    await setup({
+      episodeAirDates: [past(30), past(20), past(10), null],
+      watchedIndices: [0, 1, 2],
+    })
+
+    await recomputeUserShowState(db, userId, showId)
+
+    const state = await readState()
+    expect(state.totalEpisodes).toBe(4)
+    expect(state.watchedEpisodes).toBe(3)
+    expect(state.status).toBe('coming_soon')
+  })
+
+  it('today counts as aired (CURRENT_DATE inclusive); coming_soon when a future ep is also scheduled', async () => {
     const today = new Date().toISOString().slice(0, 10)
     await setup({
       episodeAirDates: [past(7), today, future(7)],
@@ -156,7 +193,8 @@ describe.skipIf(!DATABASE_URL)('recomputeUserShowState (DB)', () => {
     const state = await readState()
     expect(state.totalEpisodes).toBe(2) // past + today
     expect(state.watchedEpisodes).toBe(2)
-    expect(state.status).toBe('watched')
+    // hasUpcoming=true (future(7)) → coming_soon, not watched
+    expect(state.status).toBe('coming_soon')
   })
 
   it('flips watched → new_content when a future episode crosses CURRENT_DATE', async () => {
@@ -168,9 +206,9 @@ describe.skipIf(!DATABASE_URL)('recomputeUserShowState (DB)', () => {
       initialTotal: 3,
     })
 
-    // Day 1: episode 4 still future → recompute holds 'watched'.
+    // Day 1: episode 4 still future → hasUpcoming=true, W==T for aired → coming_soon.
     await recomputeUserShowState(db, userId, showId)
-    expect((await readState()).status).toBe('watched')
+    expect((await readState()).status).toBe('coming_soon')
 
     // Simulate the air date passing: flip episode 4 to past(0).
     await db.update(episodes)
@@ -202,7 +240,7 @@ describe.skipIf(!DATABASE_URL)('recomputeUserShowState (DB)', () => {
 
   async function setupMultiSeason(opts: {
     seasonEpisodes: { airDates: (string | null)[]; watchedIndices?: number[] }[]
-    initialStatus?: 'in_progress' | 'watched' | 'new_content'
+    initialStatus?: 'in_progress' | 'watched' | 'new_content' | 'coming_soon'
     initialTotal?: number
   }) {
     const suffix = Math.random().toString(36).slice(2, 10)

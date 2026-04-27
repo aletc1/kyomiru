@@ -59,7 +59,7 @@ This is a **pnpm + Turborepo monorepo** with three apps and four packages.
 - `src/util/locale.ts` — `pickLocalized(map, locales, fallback)` and `resolveRequestLocales(acceptLanguage, preferredLocale)` used by library and show routes to serve titles/descriptions in the request locale.
 - **Three** BullMQ workers:
   - `src/workers/enrichmentWorker.ts` (concurrency 3) — always calls TMDb first (classification signals + multi-locale titles/descriptions), then AniList when the show is classified as anime. `classifyKind` (`src/services/classifyKind.ts`) promotes `tv→anime` on any TMDb genre containing "anim" (Animation, Anime, Animated, …) — Western cartoons are included by design — or on a high-confidence AniList match (≥ 0.9). The `anime` kind is Kyomiru's catch-all for animated TV; the web UI surfaces it as "Animation". 7-day freshness short-circuit on `shows.enrichedAt`. When a newly-discovered season is upserted, it enqueues a `showRefresh` job for fanout. When another show already owns the proposed `tmdb_id`/`anilist_id`, it enqueues a `showMerge` job to collapse the duplicate row.
-  - `src/workers/showRefreshWorker.ts` (concurrency 3) — single pipeline for "show changed" events. Refreshes `shows.latestAirDate` and recomputes `user_show_state` for every library user. Triggered by enrichment, sync ingest finalize, the `recompute:airing` script, and show merges. Jobs deduped by `refresh-<showId>`. The state machine (`src/services/stateMachine.ts`) only counts episodes where `air_date IS NULL OR air_date <= CURRENT_DATE`, so currently-airing shows can reach `watched` and `watched → new_content` fires when an air date crosses today.
+  - `src/workers/showRefreshWorker.ts` (concurrency 3) — single pipeline for "show changed" events. Refreshes `shows.latestAirDate` and recomputes `user_show_state` for every library user. Triggered by enrichment, sync ingest finalize, the `recompute:airing` script, and show merges. Jobs deduped by `refresh-<showId>`. The state machine (`src/services/stateMachine.ts`) only counts episodes where `air_date IS NULL OR air_date <= CURRENT_DATE` toward `total`, so currently-airing shows reach `coming_soon` (caught up, more scheduled) or `watched` (no future eps) and flip to `new_content` when a future ep crosses today and grows the catalog.
   - `src/workers/showMergeWorker.ts` (concurrency 2) — collapses two `shows` rows that map to the same `tmdb_id` or `anilist_id` into one canonical row. Migrates `show_providers`, seasons, episodes, `episode_providers`, `user_episode_progress`, and `user_show_state` in a single transaction guarded by a `pg_advisory_xact_lock`. Triggered by enrichment conflict detection; also runs via the `merge:scan` safety-net script. Jobs scoped to `(kind, externalId, duplicateShowId)` so multiple duplicates of the same show each get their own job. After merging, enqueues `showRefresh` for the canonical show.
 - Sync runs **inline** in `src/services/sync.service.ts` — not as a worker — via the extension-driven ingest protocol (see *Sync flow* below).
 - `src/cron.ts` is a one-shot script that enqueues enrichment jobs for shows with `enrichedAt IS NULL`. There is no in-repo scheduler; the daily sync trigger lives in the extension (`chrome.alarms`).
@@ -90,13 +90,28 @@ This is a **pnpm + Turborepo monorepo** with three apps and four packages.
 ### Key Domain Concepts
 
 **Show status state machine** (`apps/api/src/services/stateMachine.ts`):
-- First ingest → `in_progress` (partial watch) or `watched` (all episodes)
-- `watched` → `new_content` when `total > userShowState.totalEpisodes` and user is behind (a new season/episode appeared)
-- `in_progress` → `new_content` when the user has watched at least one episode AND the latest aired season (highest `season_number` with aired episodes) has zero watched episodes. Only the latest season is checked — skipped earlier seasons are treated as a deliberate choice and do not trigger this.
-- `new_content` is sticky: it clears only when the user fully catches up (→ `watched`) or explicitly via a PATCH route
-- `removed` is a soft delete. `recomputeUserShowState` will not overwrite `removed`; it only refreshes the episode counters. `prev_status` exists as a column for future restore logic.
-- Status is recomputed after every ingest and after enrichment upserts new episodes. Transitioning to `watched` clears `queue_position`.
-- Only aired episodes count (`air_date IS NULL OR air_date <= CURRENT_DATE`), so future seasons do not trigger early.
+
+Five statuses: `in_progress`, `new_content`, `coming_soon`, `watched`, `removed`. `decideShowStatus` reads four signals derived from the user's progress against the show's episodes:
+
+- `total` — count of episodes that pass the aired filter (`air_date IS NULL OR air_date <= CURRENT_DATE`).
+- `watched` — count of those that have a `user_episode_progress.watched=true` row for this user.
+- `hasActionable` — there exists an episode the user can watch *right now*: `air_date IS NOT NULL AND <= CURRENT_DATE` AND not yet watched.
+- `hasUpcoming` — there exists an episode the user *can't watch yet*: either `air_date > CURRENT_DATE`, OR `air_date IS NULL` with no `episode_providers` row (an enrichment placeholder for an announced-but-unscheduled future episode). NULL eps that *do* have a provider row come from extension history-only ingest (Netflix) and are treated as aired-but-undated, not upcoming.
+- `latestAiredSeasonUnwatched` — the highest-numbered season with any aired episode has zero watched episodes for this user.
+
+Branches, in priority order:
+1. `T == W && !hasUpcoming` → `watched` (fully caught up, nothing scheduled).
+2. `T == W && hasUpcoming` → `coming_soon` (caught up, more is coming).
+3. `T > W && !hasActionable && hasUpcoming && W > 0` → `coming_soon` (placeholder-padded shows: user is caught up on every dated released ep but `T > W` because of NULL placeholders or future-dated eps).
+4. `existingStatus ∈ {watched, coming_soon} && hasActionable && T > existingTotalEpisodes` → `new_content` (a new dated episode appeared, catalog grew).
+5. `existingStatus == new_content && hasActionable` → `new_content` (sticky while there's something to watch).
+6. `W > 0 && hasActionable && latestAiredSeasonUnwatched` → `new_content` (user has started the show; the *latest* aired season is wholly unwatched — only the latest is checked, so skipping earlier seasons doesn't trigger this).
+7. Otherwise → `in_progress`.
+
+Other rules:
+- `removed` is a soft delete. `recomputeUserShowState` won't overwrite it; it only refreshes the counters. `prev_status` exists as a column for future restore logic.
+- Status is recomputed after every ingest, after enrichment upserts new episodes, and after a `showRefresh` job. Transitioning to `watched` clears `queue_position` (other statuses preserve it).
+- The aired filter treats `air_date IS NULL` as aired (so extension history-only eps count toward `total`), but `hasUpcoming` only re-classifies a NULL as "upcoming" when no `episode_providers` row exists — this is the discriminator between an enrichment placeholder and a Netflix-style undated watched ep.
 
 **Sync flow** — streaming, extension-driven (runs per provider key):
 1. Extension reads the adapter's captured session from `chrome.storage.session` (`capturedSession:<providerKey>`); aborts if missing or expired.

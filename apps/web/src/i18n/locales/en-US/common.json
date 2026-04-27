@@ -21,6 +21,7 @@
   "settings": "Settings",
   "nav_in_progress": "In Progress",
   "nav_new_content": "New Content",
+  "nav_coming_soon": "Coming Soon",
   "nav_watched": "Watched",
   "eps_one": "{{watched}}/{{total}} ep",
   "eps_other": "{{watched}}/{{total}} eps",

@@ -107,7 +107,7 @@ describe.skipIf(!DATABASE_URL)('bulkUpdateEpisodeProgress (DB)', () => {
     expect(state.status).toBe('watched')
   })
 
-  it('skips future-dated episodes', async () => {
+  it('skips future-dated episodes; lands coming_soon when caught up on aired eps', async () => {
     await setup([{ episodeAirDates: [past(7), past(1), future(7)] }])
 
     const { episodesUpdated } = await bulkUpdateEpisodeProgress(db, userId, showId, { watched: true })
@@ -115,7 +115,7 @@ describe.skipIf(!DATABASE_URL)('bulkUpdateEpisodeProgress (DB)', () => {
     expect(episodesUpdated).toBe(2)
     const state = await getState()
     expect(state.watchedEpisodes).toBe(2)
-    expect(state.status).toBe('in_progress')
+    expect(state.status).toBe('coming_soon')
   })
 
   it('marks every aired episode across all seasons when seasonId is omitted', async () => {
@@ -130,7 +130,8 @@ describe.skipIf(!DATABASE_URL)('bulkUpdateEpisodeProgress (DB)', () => {
     const state = await getState()
     expect(state.totalEpisodes).toBe(4)
     expect(state.watchedEpisodes).toBe(4)
-    expect(state.status).toBe('watched')
+    // hasUpcoming=true (future(5)) → coming_soon, not watched
+    expect(state.status).toBe('coming_soon')
   })
 
   it('scopes to a single season when seasonId is provided', async () => {
@@ -148,7 +149,8 @@ describe.skipIf(!DATABASE_URL)('bulkUpdateEpisodeProgress (DB)', () => {
     const state = await getState()
     expect(state.watchedEpisodes).toBe(2)
     expect(state.totalEpisodes).toBe(4)
-    expect(state.status).toBe('in_progress')
+    // Latest aired season (S2) is wholly unwatched → branch 4 fires
+    expect(state.status).toBe('new_content')
   })
 
   it('marks watched=false clears progress', async () => {

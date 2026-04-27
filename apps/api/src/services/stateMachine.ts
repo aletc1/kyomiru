@@ -1,6 +1,6 @@
 import { eq, and, count, sql, desc } from 'drizzle-orm'
 import type { DbClient } from '@kyomiru/db/client'
-import { userEpisodeProgress, userShowState, episodes, seasons, type showStatusEnum } from '@kyomiru/db/schema'
+import { userEpisodeProgress, userShowState, episodes, episodeProviders, seasons, type showStatusEnum } from '@kyomiru/db/schema'
 
 type ShowStatus = typeof showStatusEnum.enumValues[number]
 
@@ -16,6 +16,10 @@ export interface StatusInput {
   watched: number
   // True when the latest aired season has no watched episodes. Drives the new_content rule.
   latestAiredSeasonUnwatched: boolean
+  // True when there is at least one episode with a known past/today air_date that the user hasn't watched.
+  hasActionable: boolean
+  // True when there is at least one episode with a known future air_date.
+  hasUpcoming: boolean
   existingStatus: ShowStatus
   existingTotalEpisodes: number
   existingQueuePosition: number | null
@@ -27,18 +31,32 @@ export interface StatusResult {
 }
 
 export function decideShowStatus(input: StatusInput): StatusResult {
-  const { total, watched, latestAiredSeasonUnwatched, existingStatus, existingTotalEpisodes, existingQueuePosition } = input
+  const {
+    total, watched, latestAiredSeasonUnwatched,
+    hasActionable, hasUpcoming,
+    existingStatus, existingTotalEpisodes, existingQueuePosition,
+  } = input
 
   let status: ShowStatus
 
-  if (total > 0 && watched === total) {
+  if (total > 0 && watched === total && !hasUpcoming) {
+    // 1a: Fully caught up, no future episodes scheduled → watched
     status = 'watched'
-  } else if (existingStatus === 'watched' && total > existingTotalEpisodes && watched < total) {
+  } else if (total > 0 && watched === total && hasUpcoming) {
+    // 1b: Fully caught up (no NULL placeholders) but future eps scheduled → coming_soon
+    status = 'coming_soon'
+  } else if (!hasActionable && hasUpcoming && watched > 0) {
+    // CS: Placeholder-padded shows — user is caught up on all dated released eps
+    // but T > W due to NULL placeholders. Future eps are scheduled → coming_soon.
+    status = 'coming_soon'
+  } else if ((existingStatus === 'watched' || existingStatus === 'coming_soon') && hasActionable && total > existingTotalEpisodes) {
+    // 2: A new dated episode appeared that the user hasn't watched → new_content
     status = 'new_content'
-  } else if (existingStatus === 'new_content' && watched < total) {
+  } else if (existingStatus === 'new_content' && hasActionable) {
+    // 3: Sticky new_content — only while there is something actionable to watch
     status = 'new_content'
-  } else if (watched > 0 && watched < total && latestAiredSeasonUnwatched) {
-    // User has started the show but the latest aired season is completely unwatched.
+  } else if (watched > 0 && hasActionable && latestAiredSeasonUnwatched) {
+    // 4: User has started the show; the latest aired season is fully unwatched → new_content
     status = 'new_content'
   } else {
     status = 'in_progress'
@@ -109,6 +127,55 @@ export async function recomputeUserShowState(
     latestAiredSeasonUnwatched = (watchedInLatest?.count ?? 0) === 0
   }
 
+  // hasActionable: there is a dated released episode the user hasn't watched.
+  const [actionableRow] = await db
+    .select({ id: episodes.id })
+    .from(episodes)
+    .leftJoin(
+      userEpisodeProgress,
+      and(
+        eq(userEpisodeProgress.episodeId, episodes.id),
+        eq(userEpisodeProgress.userId, userId),
+        eq(userEpisodeProgress.watched, true),
+      ),
+    )
+    .where(
+      and(
+        eq(episodes.showId, showId),
+        sql`${episodes.airDate} IS NOT NULL`,
+        sql`${episodes.airDate} <= CURRENT_DATE`,
+        sql`${userEpisodeProgress.episodeId} IS NULL`,
+      ),
+    )
+    .limit(1)
+  const hasActionable = actionableRow !== undefined
+
+  // hasUpcoming: there is at least one episode the user can't watch yet —
+  // either explicitly future-dated, or a NULL-air-date placeholder created by
+  // enrichment (announced future season, no schedule). NULL eps with an
+  // episode_providers row come from extension history-only ingest (Netflix)
+  // and represent watched-but-undated, not upcoming.
+  const [upcomingRow] = await db
+    .select({ id: episodes.id })
+    .from(episodes)
+    .where(
+      and(
+        eq(episodes.showId, showId),
+        sql`(
+          (${episodes.airDate} IS NOT NULL AND ${episodes.airDate} > CURRENT_DATE)
+          OR (
+            ${episodes.airDate} IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM ${episodeProviders}
+              WHERE ${episodeProviders.episodeId} = ${episodes.id}
+            )
+          )
+        )`,
+      ),
+    )
+    .limit(1)
+  const hasUpcoming = upcomingRow !== undefined
+
   // Get existing state
   const [existing] = await db
     .select()
@@ -130,6 +197,8 @@ export async function recomputeUserShowState(
     total,
     watched,
     latestAiredSeasonUnwatched,
+    hasActionable,
+    hasUpcoming,
     existingStatus: existing.status as ShowStatus,
     existingTotalEpisodes: existing.totalEpisodes,
     existingQueuePosition: existing.queuePosition,

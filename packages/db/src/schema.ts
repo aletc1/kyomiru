@@ -8,7 +8,7 @@ import { sql } from 'drizzle-orm'
 const tsvector = customType<{ data: string }>({ dataType: () => 'tsvector' })
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
-export const showStatusEnum = pgEnum('show_status', ['in_progress', 'new_content', 'watched', 'removed'])
+export const showStatusEnum = pgEnum('show_status', ['in_progress', 'new_content', 'coming_soon', 'watched', 'removed'])
 export const serviceStatusEnum = pgEnum('service_status', ['connected', 'disconnected', 'error'])
 export const syncStatusEnum = pgEnum('sync_status', ['running', 'success', 'partial', 'error'])
 export const syncTriggerEnum = pgEnum('sync_trigger', ['manual', 'cron'])

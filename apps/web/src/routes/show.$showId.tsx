@@ -51,6 +51,7 @@ function ShowDetailPage() {
     queryClient.invalidateQueries({ queryKey: Q.show(showId) })
     queryClient.invalidateQueries({ queryKey: Q.library({}) })
     queryClient.invalidateQueries({ queryKey: Q.newContentCount })
+    queryClient.invalidateQueries({ queryKey: Q.comingSoonCount })
     queryClient.invalidateQueries({ queryKey: Q.queue })
   }
 
@@ -212,6 +213,7 @@ function ShowDetailPage() {
             </DropdownMenu>
             {show.year && <span className="text-sm text-muted-foreground">{show.year}</span>}
             {show.status === 'new_content' && <Badge variant="new">NEW</Badge>}
+            {show.status === 'coming_soon' && <Badge variant="soon">SOON</Badge>}
           </div>
           <h1 className="text-2xl font-bold leading-tight">{show.canonicalTitle}</h1>
           {show.genres.length > 0 && (

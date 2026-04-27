@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { ShowKind } from '@kyomiru/shared'
 
-export const LIBRARY_STATUS_VALUES = ['in_progress', 'new_content', 'watched', 'removed'] as const
+export const LIBRARY_STATUS_VALUES = ['in_progress', 'new_content', 'coming_soon', 'watched', 'removed'] as const
 export const LIBRARY_SORT_VALUES = ['recent_activity', 'title_asc', 'rating', 'last_watched', 'latest_air_date'] as const
 export const LIBRARY_KIND_VALUES = ['anime', 'tv', 'movie'] as const
 

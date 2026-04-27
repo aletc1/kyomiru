@@ -1,4 +1,4 @@
-export const SHOW_STATUSES = ['in_progress', 'new_content', 'watched', 'removed'] as const
+export const SHOW_STATUSES = ['in_progress', 'new_content', 'coming_soon', 'watched', 'removed'] as const
 export type ShowStatus = (typeof SHOW_STATUSES)[number]
 
 export const PROVIDER_KEYS = ['netflix', 'prime', 'crunchyroll'] as const

@@ -9,7 +9,7 @@ import { api } from '@/lib/api'
 import { Q } from '@/lib/queryKeys'
 import { useAppStore, LIBRARY_STATUS_VALUES, LIBRARY_SORT_VALUES, LIBRARY_KIND_VALUES, DEFAULT_LIBRARY_SORT, type LibraryGenre } from '@/lib/store'
 import type { LibraryResponse, LibraryFacets } from '@kyomiru/shared/contracts/library'
-import type { NewContentCount } from '@kyomiru/shared/contracts/auth'
+import type { NewContentCount, ComingSoonCount } from '@kyomiru/shared/contracts/auth'
 import { ShowCard } from '@/components/ShowCard'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -74,6 +74,11 @@ function LibraryPage() {
   const { data: countData } = useQuery<NewContentCount>({
     queryKey: Q.newContentCount,
     queryFn: () => api.get<NewContentCount>('/new-content-count'),
+  })
+
+  const { data: comingSoonData } = useQuery<ComingSoonCount>({
+    queryKey: Q.comingSoonCount,
+    queryFn: () => api.get<ComingSoonCount>('/coming-soon-count'),
   })
 
   const { data: facetsData } = useQuery<LibraryFacets>({
@@ -278,6 +283,9 @@ function LibraryPage() {
           <TabsTrigger value="in_progress">{t('tab_in_progress')}</TabsTrigger>
           <TabsTrigger value="new_content" className="gap-1">
             {t('tab_new_content')} {(countData?.count ?? 0) > 0 && <Badge className="h-5 px-1.5 text-xs">{countData?.count}</Badge>}
+          </TabsTrigger>
+          <TabsTrigger value="coming_soon" className="gap-1">
+            {t('tab_coming_soon')} {(comingSoonData?.count ?? 0) > 0 && <Badge className="h-5 px-1.5 text-xs">{comingSoonData?.count}</Badge>}
           </TabsTrigger>
           <TabsTrigger value="watched">{t('tab_watched')}</TabsTrigger>
           <TabsTrigger value="removed">{t('tab_removed')}</TabsTrigger>

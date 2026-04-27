@@ -11,4 +11,13 @@ export async function newContentRoutes(app: FastifyInstance) {
       .where(and(eq(userShowState.userId, userId), eq(userShowState.status, 'new_content')))
     reply.send({ count: row?.count ?? 0 })
   })
+
+  app.get('/coming-soon-count', { preHandler: app.requireAuth }, async (req, reply) => {
+    const userId = req.session.get('userId')!
+    const [row] = await app.db
+      .select({ count: count() })
+      .from(userShowState)
+      .where(and(eq(userShowState.userId, userId), eq(userShowState.status, 'coming_soon')))
+    reply.send({ count: row?.count ?? 0 })
+  })
 }

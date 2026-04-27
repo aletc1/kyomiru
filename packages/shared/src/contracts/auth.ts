@@ -24,4 +24,5 @@ export const HealthSchema = z.object({
 
 export type User = z.infer<typeof UserSchema>
 export type NewContentCount = z.infer<typeof NewContentCountSchema>
+export type ComingSoonCount = NewContentCount
 export type QueueReorderBody = z.infer<typeof QueueReorderBodySchema>
