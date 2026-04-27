@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.9.0...kyomiru-v1.10.0) (2026-04-27)
+
+
+### Features
+
+* split new_content into new_content + coming_soon ([#70](https://github.com/aletc1/kyomiru/issues/70)) ([b0c876b](https://github.com/aletc1/kyomiru/commit/b0c876bb14919ef9a6f1bd5c471b3b424537bc42))
+
 ## [1.9.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.8.0...kyomiru-v1.9.0) (2026-04-25)
 
 
