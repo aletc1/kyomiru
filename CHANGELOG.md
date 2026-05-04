@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.1](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.10.0...kyomiru-v1.10.1) (2026-05-04)
+
+
+### Bug Fixes
+
+* **api:** use cross-env for NODE_OPTIONS in dev script and add cross-… ([#73](https://github.com/aletc1/kyomiru/issues/73)) ([00d6f69](https://github.com/aletc1/kyomiru/commit/00d6f69fdb7f8fa1b07ceac5eb74d5666266e990))
+
 ## [1.10.0](https://github.com/aletc1/kyomiru/compare/kyomiru-v1.9.0...kyomiru-v1.10.0) (2026-04-27)
 
 
